@@ -71,7 +71,7 @@ void run_k2(const std::string& name, int k, int count, Func func,
         bool correct = (err == MPI_SUCCESS)
                        && check_correctness(recvbuf, refbuf);
         if (rank == 0) {
-            csv << name << "," << k << "," << count << ","
+            csv << name << "," << k << ","<<nprocs<<"," << count << ","
                 << (t1 - t0) << "," << (correct?1:0) << "\n";
             csv.flush();
         }
@@ -104,7 +104,7 @@ void run_k1(const std::string& name, int k, int count, Func func,
         bool correct = (err == MPI_SUCCESS)
                        && check_correctness(recvbuf, refbuf);
         if (rank == 0) {
-            csv << name << "," << k << "," << count << ","
+            csv << name << "," << k << "," <<nprocs<<","<< count << ","
                 << (t1 - t0) << "," << (correct?1:0) << "\n";
             csv.flush();
         }
@@ -136,7 +136,7 @@ void run_no_k(const std::string& name, int count, Func func,
         bool correct = (err == MPI_SUCCESS)
                        && check_correctness(recvbuf, refbuf);
         if (rank == 0) {
-            csv << name << ",0," << count << ","
+            csv << name << ",0," <<nprocs<<","<< count << ","
                 << (t1 - t0) << "," << (correct?1:0) << "\n";
             csv.flush();
         }
@@ -149,19 +149,37 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
-    if (argc != 2) {
+    //
+    // Parse arguments:  program <n_iter> [--overwrite]
+    //
+    if (argc < 2 || argc > 3) {
         if (rank == 0) {
-            std::cerr << "Usage: " << argv[0] << " <n_iter>\n";
+            std::cerr << "Usage: " << argv[0]
+                      << " <n_iter> [--overwrite]\n";
         }
         MPI_Finalize();
         return EXIT_FAILURE;
     }
-    int n_iter = std::atoi(argv[1]);
+    int  n_iter    = std::atoi(argv[1]);
+    bool overwrite = (argc == 3 && std::strcmp(argv[2], "--overwrite") == 0);
 
+    //
+    // Only rank‐0 manages the CSV file.
+    //
     std::ofstream csv;
     if (rank == 0) {
-        csv.open("results.csv");
-        csv << "algorithm_name,k,send_count,time,is_correct\n";
+        // check whether results.csv already exists
+        bool exists = std::ifstream("results.csv").good();
+
+        if (overwrite || !exists) {
+            // truncate (or create) + write header
+            csv.open("results.csv", std::ios::out | std::ios::trunc);
+            csv << "algorithm_name,k,nprocs,send_count,time,is_correct\n";
+        }
+        else {
+            // append, no header
+            csv.open("results.csv", std::ios::out | std::ios::app);
+        }
     }
 
     const int base = 8;
@@ -174,8 +192,8 @@ int main(int argc, char** argv) {
                    MPICH_Allreduce_k_reduce_scatter_allgather,
                    MPI_COMM_WORLD, csv, rank, nprocs);
             run_k2("recursive_exchange", k, count,
-                    MPICH_Allreduce_recursive_exchange,
-                    MPI_COMM_WORLD, csv, rank, nprocs);
+                   MPICH_Allreduce_recursive_exchange,
+                   MPI_COMM_WORLD, csv, rank, nprocs);
 
             run_k1("recursive_multiplying", k, count,
                    MPICH_Allreduce_recursive_multiplying,

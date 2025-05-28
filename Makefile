@@ -2,6 +2,8 @@
 RANKS_PER_NODE ?= 3
 NUM_NODES      ?= 3
 DEBUG          ?= 0
+OVERWRITE      ?= 0       # 0 = append to results.csv, 1 = overwrite
+N_ITER         ?= 10      # Number of iterations (powers of two)
 TOTAL_PROCS    = $(shell expr $(RANKS_PER_NODE) \* $(NUM_NODES))
 
 # Use MPI compiler wrappers
@@ -14,8 +16,8 @@ CXXFLAGS = -Wall -O2 -std=c++11
 
 # Debug flags (for the full benchmark build)
 ifeq ($(DEBUG), 1)
-	CFLAGS   += -g -DDEBUG_MODE
-	CXXFLAGS += -g -DDEBUG_MODE
+CFLAGS   += -g -DDEBUG_MODE
+CXXFLAGS += -g -DDEBUG_MODE
 endif
 
 # Always pass RANKS_PER_NODE into every compile
@@ -51,19 +53,23 @@ $(MAIN_EXEC): main.cpp $(IMPL_OBJS)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 # -------------------------------------------------------------------
+# Compute the overwrite flag at parse time (no leading tab!)
+# -------------------------------------------------------------------
+ifeq ($(OVERWRITE),1)
+OVERWRITE_FLAG := --overwrite
+else
+OVERWRITE_FLAG :=
+endif
+
+# -------------------------------------------------------------------
 # Run the full benchmark
 # -------------------------------------------------------------------
 .PHONY: run-benchmark
 run-benchmark: $(MAIN_EXEC)
-	mpirun -np $(TOTAL_PROCS) ./$(MAIN_EXEC) 10
+	mpirun -np $(TOTAL_PROCS) ./$(MAIN_EXEC) $(N_ITER) $(OVERWRITE_FLAG)
 
 # -------------------------------------------------------------------
 # Debug a single implementation (build+run with its own main)
-#
-# Usage:
-#   make debug-<impl> [RANKS_PER_NODE=X] [NUM_NODES=Y]
-# Example:
-#   make debug-allreduce_ring RANKS_PER_NODE=2 NUM_NODES=1
 # -------------------------------------------------------------------
 .PHONY: debug-%
 debug-%: %.cpp
@@ -82,22 +88,22 @@ clean:
 # Help message
 # -------------------------------------------------------------------
 .PHONY: help
-.PHONY: help
 help:
 	@echo "MPI Implementations Makefile"
 	@echo ""
 	@echo "Usage:"
-	@echo "  make [target] [RANKS_PER_NODE=X] [NUM_NODES=Y] [DEBUG=0|1]"
+	@echo "  make [target] [RANKS_PER_NODE=X] [NUM_NODES=Y] [DEBUG=0|1] [OVERWRITE=0|1] [N_ITER=K]"
 	@echo ""
 	@echo "Targets:"
 	@echo "  all                 - Build the full benchmark executable (default)"
 	@echo "  run-benchmark       - Run the full benchmark across all implementations"
+	@echo "                         (appends by default; use OVERWRITE=1 to rewrite results.csv)"
 	@echo "  debug-<impl>        - Build & run a single implementation in debug mode"
 	@echo "                         (e.g. make debug-allreduce_ring)"
 	@echo "  clean               - Remove executables, objects, and results"
 	@echo "  help                - Display this help message"
 	@echo ""
-	@echo "Available implementations for debug:"
+	@echo "Implementations available for debug:"
 	@echo "  allreduce_k_reduce_scatter_allgather"
 	@echo "  allreduce_recursive_doubling"
 	@echo "  allreduce_recursive_multiplying"
@@ -110,10 +116,11 @@ help:
 	@echo "  RANKS_PER_NODE      - Number of ranks per node (default: 3)"
 	@echo "  NUM_NODES           - Number of nodes (default: 3)"
 	@echo "  DEBUG               - Enable debug mode for full build (0=off,1=on)"
+	@echo "  OVERWRITE           - Overwrite results.csv (0=append,1=overwrite)"
+	@echo "  N_ITER              - Number of iterations (powers of two, default: 10)"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make run-benchmark RANKS_PER_NODE=4 NUM_NODES=2"
+	@echo "  make run-benchmark RANKS_PER_NODE=4 NUM_NODES=2 N_ITER=15"
+	@echo "  make run-benchmark OVERWRITE=1"
 	@echo "  make debug-allreduce_ring RANKS_PER_NODE=2 NUM_NODES=1"
-	@echo "  make debug-allreduce_recursive_doubling"
-	@echo "  make RANKS_PER_NODE=4 NUM_NODES=2 DEBUG=1"
-	@echo "  make clean"
+	@echo "  make DEBUG=1"
