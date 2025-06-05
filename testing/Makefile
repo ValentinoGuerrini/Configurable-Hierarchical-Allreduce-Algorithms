@@ -25,13 +25,13 @@ CFLAGS   += -DRANKS_PER_NODE=$(RANKS_PER_NODE)
 CXXFLAGS += -DRANKS_PER_NODE=$(RANKS_PER_NODE)
 
 # Implementation sources
-IMPL_SRCS = allreduce_k_reduce_scatter_allgather.cpp \
-            allreduce_recursive_doubling.cpp          \
-            allreduce_recursive_multiplying.cpp       \
-            allreduce_reduce_scatter_allgather.cpp    \
-            allreduce_ring.cpp                        \
-            allreduce_inter_reduce_exchange_bcast.cpp \
-            allreduce_recexch.cpp
+IMPL_SRCS = mpich_implementations/allreduce_k_reduce_scatter_allgather.cpp \
+            mpich_implementations/allreduce_recursive_doubling.cpp          \
+            mpich_implementations/allreduce_recursive_multiplying.cpp       \
+            mpich_implementations/allreduce_reduce_scatter_allgather.cpp    \
+            mpich_implementations/allreduce_ring.cpp                        \
+            mpich_implementations/allreduce_inter_reduce_exchange_bcast.cpp \
+            mpich_implementations/allreduce_recexch.cpp
 
 IMPL_OBJS = $(IMPL_SRCS:.cpp=.o)
 
@@ -45,12 +45,12 @@ MAIN_EXEC = benchmark
 all: $(MAIN_EXEC)
 
 # Compile each implementation/source file into an object
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+%.o: mpich_implementations/%.cpp
+	$(CXX) $(CXXFLAGS) -I mpich_implementations -c $< -o $@
 
 # Link the benchmark executable
 $(MAIN_EXEC): main.cpp $(IMPL_OBJS)
-	$(CXX) $(CXXFLAGS) $^ -o $@
+	$(CXX) $(CXXFLAGS) $^ -I mpich_implementations -o $@
 
 # -------------------------------------------------------------------
 # Compute the overwrite flag at parse time (no leading tab!)
@@ -72,9 +72,9 @@ run-benchmark: $(MAIN_EXEC)
 # Debug a single implementation (build+run with its own main)
 # -------------------------------------------------------------------
 .PHONY: debug-%
-debug-%: %.cpp
+debug-%: mpich_implementations/%.cpp
 	$(CXX) $(CXXFLAGS) -g -DDEBUG_MODE -DRANKS_PER_NODE=$(RANKS_PER_NODE) \
-	        $< -o $@
+	        $< -I mpich_implementations -o $@
 	mpirun -np $(TOTAL_PROCS) ./\$@
 
 # -------------------------------------------------------------------
@@ -82,7 +82,7 @@ debug-%: %.cpp
 # -------------------------------------------------------------------
 .PHONY: clean
 clean:
-	rm -f $(MAIN_EXEC) debug-* *.o results.csv
+	rm -f $(MAIN_EXEC) debug-* $(IMPL_OBJS) results.csv
 
 # -------------------------------------------------------------------
 # Help message
