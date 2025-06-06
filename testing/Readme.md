@@ -34,7 +34,14 @@ testing/
 ├── README.md
 ├── common.hpp
 ├── custom_implementations/
-│   └── allreduce_custom.cpp
+│   ├── allreduce_custom.cpp
+│   └── work_dir/
+│       └── reduce_scatter/
+│           ├── README.md
+│           ├── reduce_scatter_beta1.cpp
+│           ├── visualize_buffers.py
+│           ├── example.png
+│           └── Makefile
 ├── mpich_implementations/
 │   ├── allreduce_k_reduce_scatter_allgather.cpp
 │   ├── allreduce_recursive_doubling.cpp

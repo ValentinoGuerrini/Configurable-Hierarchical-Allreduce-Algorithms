@@ -1,5 +1,9 @@
 #include <mpi.h>
 #include <iostream>
+#include <vector>
+#include <fstream>
+#include <cstdlib>
+
 
 #define CHECK_ALLOCATIONS(...) \
     if ((__VA_ARGS__)) { \
@@ -13,7 +17,9 @@
         return 1; \
     }
 
-int calculate_max_datablocks_per_round(int r, int w) {
+
+
+static int calculate_max_datablocks_per_round(int r, int w) {
     int max_db_per_round = 1;
     for (int i = 0; i < w - 1; i++) {
         if (max_db_per_round > INT_MAX / r) {
@@ -25,15 +31,7 @@ int calculate_max_datablocks_per_round(int r, int w) {
 }
 
 
-
-
-
-int emma_algorithm (char *sendbuf, char *recvbuf, int totcount, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm, int r , int b) {
-
-
-
-
-
+int reduce_scatter_radix_block(char *sendbuf, char *recvbuf, int count, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm, int r , int b) {
 
 
     int rank, nprocs, typesize;
@@ -41,7 +39,6 @@ int emma_algorithm (char *sendbuf, char *recvbuf, int totcount, MPI_Datatype dat
     MPI_Comm_size(comm, &nprocs);
     MPI_Type_size(datatype, &typesize);
 
-    int count = totcount / nprocs;
 
 
     //General Checks
@@ -133,9 +130,8 @@ int emma_algorithm (char *sendbuf, char *recvbuf, int totcount, MPI_Datatype dat
 
     // copy data that need to be sent to each rank itself
 
-    char * reducebuf = (char*) malloc(size);
     
-    memcpy(reducebuf, &sendbuf[rank*size], size);
+    memcpy(recvbuf, &sendbuf[rank*size], size);
     
 
     
@@ -256,7 +252,7 @@ int emma_algorithm (char *sendbuf, char *recvbuf, int totcount, MPI_Datatype dat
             CHECK_MPI_ERROR(mpi_errno != MPI_SUCCESS);
 
             for (i = 0; i <count_tmp; i++) {
-                mpi_errno = MPI_Reduce_local(&temp[i], reducebuf,count, datatype, op);
+                mpi_errno = MPI_Reduce_local(&temp[i], recvbuf,count, datatype, op);
                 CHECK_MPI_ERROR(mpi_errno != MPI_SUCCESS);
             }
 
@@ -272,7 +268,7 @@ int emma_algorithm (char *sendbuf, char *recvbuf, int totcount, MPI_Datatype dat
                         int o = (sent_blocks[i][j] - rank + nprocs) % nprocs - rem2;
                         if (j < distance) {
                             //memcpy(&recvbuf[count*sent_blocks[i][j]*typesize], &temp_recv_buffer[offset], size);
-                            mpi_errno = MPI_Reduce_local(&temp_recv_buffer[offset], reducebuf,count, datatype, op);
+                            mpi_errno = MPI_Reduce_local(&temp_recv_buffer[offset], recvbuf,count, datatype, op);
                             CHECK_MPI_ERROR(mpi_errno != MPI_SUCCESS);
                         }
                         else {
@@ -289,175 +285,160 @@ int emma_algorithm (char *sendbuf, char *recvbuf, int totcount, MPI_Datatype dat
 
     }
 
-    
-//ALLGATHER PHASE
+    free(extra_buffer);
+    free(temp_recv_buffer);
 
-    int p_of_k  = (max_db_per_round == nprocs)? 1: 0;
-    distance = 1;
-    
-    if(rank == 0) {
-        free(temp_recv_buffer);
-        temp_recv_buffer = recvbuf;
-    }
-    memcpy(temp_recv_buffer, reducebuf, size);
-
-    int sendrank, recvrank, left_count, distance_j;
-
-    for(i = 0; i < w; i++) {
-        num_reqs = 0;
-        for(j = 0; j < r; j++) {
-            distance_j = distance * j;
-            if(distance_j >= nprocs)  // Fixed 'size' to 'nprocs'
-                break;
-                
-            sendrank = (nprocs + (rank - distance_j)) % nprocs;
-            recvrank = (rank + distance_j) % nprocs;  // Fixed 'size' to 'nprocs' and 'r' to 'j'
-
-
-            if ((!p_of_k) && (i == w - 1)) {
-                count_tmp = count * distance;
-                left_count = count * (nprocs - distance_j);
-                if (j == r - 1) {
-                    count_tmp = left_count;
-                } else {
-                    count_tmp = count_tmp <= left_count ? count_tmp: left_count;
-                }
-            } else {
-                count_tmp = count * distance;
-            }
-            mpi_errno = MPI_Irecv(temp_recv_buffer + size * distance_j, count_tmp, datatype, recvrank, recvrank + r, comm, &reqs[num_reqs++]);
-            
-            CHECK_MPI_ERROR(mpi_errno != MPI_SUCCESS);
-            
-            mpi_errno = MPI_Isend(temp_recv_buffer, count_tmp, datatype, sendrank, rank + r, comm, &reqs[num_reqs++]);
-
-            CHECK_MPI_ERROR(mpi_errno != MPI_SUCCESS);
-        }
-        distance *= r;
-        mpi_errno = MPI_Waitall(num_reqs, reqs, MPI_STATUS_IGNORE);
-
-        CHECK_MPI_ERROR(mpi_errno != MPI_SUCCESS);
-        
-    }
-
-    if(rank != 0) {
-        // Rearrange data in the correct order
-        memcpy(recvbuf, 
-               temp_recv_buffer + (nprocs - rank) * size, 
-               rank * size);
-
-        memcpy(recvbuf + rank * size, 
-               temp_recv_buffer, 
-               (nprocs - rank) * size);
-               
-        free(temp_recv_buffer);
-    }
-    if (K < nprocs - 1) {
-        free(extra_buffer);
-        free(temp_send_buffer);
-    }
+    free(temp_send_buffer);
+    free(temp);
     free(stats);
     free(reqs);
-    return MPI_SUCCESS;
-}
-
-
-#ifdef DEBUG_MODE 
-
-int main(int argc, char **argv) {
-    MPI_Init(&argc, &argv);
-    
-    int rank, size;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-    
-    // Set parameters for emma_algorithm
-    const int r = 3;
-    const int w = 1;
-    
-    // Test with different counts
-    const int test_counts[] = {10, 100, 1000};
-    const int num_tests = sizeof(test_counts) / sizeof(test_counts[0]);
-    
-    for (int t = 0; t < num_tests; t++) {
-        const int count = test_counts[t];
-        const int totcount = count * size; // Total elements across all processes
-        
-        // Allocate and initialize buffers
-        float *sendbuf = new float[totcount];
-        float *recvbuf_emma = new float[totcount];
-        float *recvbuf_mpi = new float[totcount];
-        
-        // Initialize send buffer with rank-specific data
-        for (int i = 0; i < totcount; i++) {
-            sendbuf[i] = 1000*rank + 1 * i;
-        }
-        
-        // Clear receive buffers
-        memset(recvbuf_emma, 0, totcount * sizeof(float));
-        memset(recvbuf_mpi, 0, totcount * sizeof(float));
-        
-        // Barrier to synchronize before timing
-        MPI_Barrier(MPI_COMM_WORLD);
-        
-        // Test standard MPI_Allreduce
-        double start_mpi = MPI_Wtime();
-        MPI_Allreduce(sendbuf, recvbuf_mpi, totcount, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-        double end_mpi = MPI_Wtime();
-        
-        // Barrier to ensure fair timing comparison
-        MPI_Barrier(MPI_COMM_WORLD);
-        
-        // Test emma_algorithm
-        double start_emma = MPI_Wtime();
-        int result = emma_algorithm((char*)sendbuf, (char*)recvbuf_emma, totcount, MPI_FLOAT, 
-                                   MPI_SUM, MPI_COMM_WORLD, r, w);
-        double end_emma = MPI_Wtime();
-        
-        // Check for errors
-        if (result != MPI_SUCCESS) {
-            if (rank == 0) {
-                std::cerr << "Error: emma_algorithm failed with count = " << count << std::endl;
-            }
-            continue;
-        }
-        
-        // Verify results
-        bool correct = true;
-        float max_diff = 1e-10;
-        for (int i = 0; i < totcount; i++) {
-            float diff = std::abs(recvbuf_emma[i] - recvbuf_mpi[i]);
-            max_diff = std::max(max_diff, diff);
-            if (diff > 1e-3) {
-                correct = false;
-                if (rank == 0) {
-                    std::cerr << "Mismatch at index " << i << ": emma = " << recvbuf_emma[i] 
-                              << ", mpi = " << recvbuf_mpi[i] << std::endl;
-                }
-                break;
-            }
-        }
-        
-        // Report results
-        if (rank == 0) {
-            std::cout << "Test with count = " << count << " (total elements = " << totcount << "):\n";
-            std::cout << "  Result: " << (correct ? "CORRECT" : "INCORRECT") << std::endl;
-            std::cout << "  Max difference: " << max_diff << std::endl;
-            std::cout << "  Time (MPI): " << (end_mpi - start_mpi) * 1000 << " ms" << std::endl;
-            std::cout << "  Time (EMMA): " << (end_emma - start_emma) * 1000 << " ms" << std::endl;
-            std::cout << "  Speedup: " << (end_mpi - start_mpi) / (end_emma - start_emma) << "x" << std::endl;
-            std::cout << std::endl;
-        }
-        
-        // Clean up
-        delete[] sendbuf;
-        delete[] recvbuf_emma;
-        delete[] recvbuf_mpi;
-    }
-    
-    MPI_Finalize();
     return 0;
 }
 
+int main(int argc, char *argv[]) {
+    MPI_Init(&argc, &argv);
 
-#endif
+    int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    if (argc < 3) {
+        if (rank == 0) {
+            std::cerr << "Usage: " << argv[0] << " <r> <b>\n";
+        }
+        MPI_Finalize();
+        return EXIT_FAILURE;
+    }
+
+    // Parse r and b
+    int r = std::atoi(argv[1]);
+    int b = std::atoi(argv[2]);
+
+    // Each rank will receive `count` ints.
+    const int count = 8;
+    // Total elements in sendbuf = count * size
+    const int total_send_elems = count * size;
+
+    // Allocate sendbuf and recvbuf with vectors
+    std::vector<int> sendbuf(total_send_elems);
+    std::vector<int> recvbuf(count);
+
+    // Fill sendbuf so that element (j*count + k) = rank*1000 + (j*count + k)
+    for (int j = 0; j < size; ++j) {
+        for (int k = 0; k < count; ++k) {
+            int idx = j * count + k;
+            sendbuf[idx] = rank * 1000 + idx;
+        }
+    }
+
+    //
+    // === Gather all initial send-buffers at rank 0 ===
+    //
+    // We want to write each rank’s initial sendbuf into the file.
+    std::vector<int> all_sendbuf; 
+    if (rank == 0) {
+        // root will hold size * total_send_elems ints
+        all_sendbuf.resize(size * total_send_elems);
+    }
+    MPI_Gather(
+        sendbuf.data(),                 // send buffer
+        total_send_elems,               // sendcount
+        MPI_INT,
+        (rank == 0 ? all_sendbuf.data() : nullptr),
+        total_send_elems,               // recvcount at root
+        MPI_INT,
+        0,
+        MPI_COMM_WORLD
+    );
+
+    //
+    // === Now call your reduce_scatter_radix_block ===
+    //
+    int mpi_err = reduce_scatter_radix_block(
+        reinterpret_cast<char*>(sendbuf.data()),
+        reinterpret_cast<char*>(recvbuf.data()),
+        count,
+        MPI_INT,
+        MPI_SUM,
+        MPI_COMM_WORLD,
+        r, b
+    );
+    // Create recvcounts array - each process gets 'count' elements
+    // int* recvcounts = new int[size];
+    // for (int i = 0; i < size; i++) {
+    //     recvcounts[i] = count;
+    // }
+    
+    // int mpi_err = MPI_Reduce_scatter(sendbuf.data(), recvbuf.data(), recvcounts, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    
+    // // Don't forget to free the memory
+    // delete[] recvcounts;
+    if (mpi_err != MPI_SUCCESS) {
+        std::cerr << "Rank " << rank << ": reduce_scatter_radix_block failed\n";
+        MPI_Abort(MPI_COMM_WORLD, mpi_err);
+    }
+
+    //
+    // === Gather all final recv-buffers at rank 0 ===
+    //
+    std::vector<int> all_recvbuf;
+    if (rank == 0) {
+        all_recvbuf.resize(size * count);
+    }
+    MPI_Gather(
+        recvbuf.data(),   // send buffer
+        count,
+        MPI_INT,
+        (rank == 0 ? all_recvbuf.data() : nullptr),
+        count,
+        MPI_INT,
+        0,
+        MPI_COMM_WORLD
+    );
+
+    //
+    // === Rank 0 writes everything to "all_buffers.txt" ===
+    //
+    if (rank == 0) {
+        std::ofstream ofs("all_buffers.txt");
+        if (!ofs.is_open()) {
+            std::cerr << "Could not open all_buffers.txt for writing\n";
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
+
+        // 1) Write initial send-buffers
+        ofs << "## initial send buffers (r=" << r << ", b=" << b << ")\n\n";
+        for (int src = 0; src < size; ++src) {
+            ofs << "SendRank " 
+                << (src < 10 ? " " : "") << src << ":";
+
+            // For rank=src, its sendbuf occupies:
+            //   all_sendbuf[ src * total_send_elems + 0 ... src * total_send_elems + (total_send_elems-1) ]
+            int base = src * total_send_elems;
+            for (int idx = 0; idx < total_send_elems; ++idx) {
+                ofs << " " << all_sendbuf[base + idx];
+            }
+            ofs << "\n";
+        }
+        ofs << "\n";
+
+        // 2) Write final recv-buffers
+        ofs << "## reduce_scatter_radix_block results (r=" << r << ", b=" << b << ")\n"
+            << "## Each row = MPI rank, columns = recvbuf[0.." << (count - 1) << "]\n\n";
+
+        for (int src = 0; src < size; ++src) {
+            ofs << "Rank " << (src < 10 ? " " : "") << src << ":";
+            for (int k = 0; k < count; ++k) {
+                int val = all_recvbuf[src * count + k];
+                ofs << " " << val;
+            }
+            ofs << "\n";
+        }
+
+        ofs.close();
+        std::cout << "All send & recv buffers written to all_buffers.txt\n";
+    }
+
+    MPI_Finalize();
+    return 0;
+}
