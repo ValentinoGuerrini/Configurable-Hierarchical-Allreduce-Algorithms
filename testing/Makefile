@@ -103,8 +103,25 @@ else ifeq ($(ENV),POLARIS)
 	 echo "qsub $(PBS_SCRIPT)"; \
 	qsub -l select=$(NUM_NODES):system=polaris $(PBS_SCRIPT)
 
+else ifeq ($(ENV),AURORA)
+	@echo "Submitting to AURORA via PBS:"
+	@echo "  Nodes:          $(NUM_NODES)"
+	@echo "  Ranks per node: $(RANKS_PER_NODE)"
+	@echo "  Total ranks:    $(TOTAL_PROCS)"
+	@echo "  Executable:     $(MAIN_EXEC)"
+	@echo
+
+	# Export so runner_aurora.sh can read them
+	@export EXECUTABLE=$(MAIN_EXEC); \
+	 export RPN=$(RANKS_PER_NODE); \
+	 export NN=$(NUM_NODES); \
+	 export NI=$(N_ITER); \
+	 export OF=$(OVERWRITE_FLAG); \
+	 echo "qsub $(PBS_SCRIPT)"; \
+	qsub -l select=$(NUM_NODES) $(PBS_SCRIPT)
+
 else
-	$(error Unsupported SYSTEM_ENVIRONMENT='$(SYSTEM_ENVIRONMENT)' (must be LOCAL or POLARIS))
+	$(error Unsupported SYSTEM_ENVIRONMENT='$(SYSTEM_ENVIRONMENT)' (must be LOCAL or POLARIS or AURORA))
 endif
 
 # -------------------------------------------------------------------
@@ -122,6 +139,7 @@ debug-%: mpich_implementations/%.cpp
 .PHONY: clean
 clean:
 	rm -f $(MAIN_EXEC) debug-* $(IMPL_OBJS) results.csv
+	rm -f runner_aurora.sh.* runner_polaris.sh.*
 
 # -------------------------------------------------------------------
 # Help message
