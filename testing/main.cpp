@@ -8,7 +8,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <string>
-
+#include <cstring>
 
     int MPICH_Allreduce_k_reduce_scatter_allgather(const char* sendbuf, char* recvbuf,
         int count, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm,

@@ -1,10 +1,26 @@
 # Configurable parameters
-RANKS_PER_NODE ?= 3
-NUM_NODES      ?= 3
+RANKS_PER_NODE ?= 9
+NUM_NODES      ?= 1
 DEBUG          ?= 0
 OVERWRITE      ?= 0       # 0 = append to results.csv, 1 = overwrite
 N_ITER         ?= 10      # Number of iterations (powers of two)
 TOTAL_PROCS    = $(shell expr $(RANKS_PER_NODE) \* $(NUM_NODES))
+
+
+ifndef SYSTEM_ENVIRONMENT
+  $(error "SYSTEM_ENVIRONMENT is undefined.  Run `source setup.sh` first.")
+endif
+
+ENV := $(shell echo "$(SYSTEM_ENVIRONMENT)" | tr -d '[:space:]' | tr a-z A-Z)
+
+ifeq ($(ENV),POLARIS)
+
+	PBS_SCRIPT       := runner_polaris.sh
+
+else ifeq ($(ENV),AURORA)
+
+	PBS_SCRIPT       := runner_aurora.sh
+endif
 
 # Use MPI compiler wrappers
 CC   = mpicc
@@ -66,7 +82,30 @@ endif
 # -------------------------------------------------------------------
 .PHONY: run-benchmark
 run-benchmark: $(MAIN_EXEC)
+ifeq ($(ENV),LOCAL)
+	@echo "Running on LOCAL: mpirun -np $(TOTAL_PROCS) ./$(MAIN_EXEC) $(N_ITER) $(OVERWRITE_FLAG)"
 	mpirun -np $(TOTAL_PROCS) ./$(MAIN_EXEC) $(N_ITER) $(OVERWRITE_FLAG)
+
+else ifeq ($(ENV),POLARIS)
+	@echo "Submitting to POLARIS via PBS:"
+	@echo "  Nodes:          $(NUM_NODES)"
+	@echo "  Ranks per node: $(RANKS_PER_NODE)"
+	@echo "  Total ranks:    $(TOTAL_PROCS)"
+	@echo "  Executable:     $(MAIN_EXEC)"
+	@echo
+
+	# Export so runner_polaris.sh can read them
+	@export EXECUTABLE=$(MAIN_EXEC); \
+	 export RPN=$(RANKS_PER_NODE); \
+	 export NN=$(NUM_NODES); \
+	 export NI=$(N_ITER); \
+	 export OF=$(OVERWRITE_FLAG); \
+	 echo "qsub $(PBS_SCRIPT)"; \
+	qsub -l select=$(NUM_NODES):system=polaris $(PBS_SCRIPT)
+
+else
+	$(error Unsupported SYSTEM_ENVIRONMENT='$(SYSTEM_ENVIRONMENT)' (must be LOCAL or POLARIS))
+endif
 
 # -------------------------------------------------------------------
 # Debug a single implementation (build+run with its own main)
