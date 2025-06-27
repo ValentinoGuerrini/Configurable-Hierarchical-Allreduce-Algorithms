@@ -130,7 +130,7 @@ int intra_gather_k_nomial(char* sendbuf,
     int local_rank = rank % b;   // which slot on that node
 
     // — pick the “home” root on each node: the slot equal to node_id
-    int root_local = node_id;
+    int root_local = node_id%b;
 
     // — normalize so that root_local→0, others shift down mod b
     int shift = (local_rank - root_local + b) % b;
@@ -428,7 +428,10 @@ int inter_allgather_linear(char* sendbuf, int sendcount, MPI_Datatype datatype, 
 
     
 
-    MPI_Request* reqs = (MPI_Request*) malloc((b-1)*(b-1) * sizeof(MPI_Request));
+    MPI_Request* reqs = (MPI_Request*) malloc(((nprocs/b)*(nprocs/(b*b)) * sizeof(MPI_Request)));
+
+    bool highn = b<(nprocs/b);
+
 
 
     if(b==nprocs/b){
@@ -446,6 +449,22 @@ int inter_allgather_linear(char* sendbuf, int sendcount, MPI_Datatype datatype, 
             
         }
 
+        MPI_Waitall(num_reqs, reqs, MPI_STATUS_IGNORE);
+    }else if(highn){
+        ///DOES NOT WORK IF NN!=K*B
+        for(int i=0; i<nprocs/(b); i+=b){
+            if((node_id - i) != node_rank){
+                MPI_Irecv(recvbuf+count*(i/b)*typeSize, count, datatype, (i+node_rank)*b + node_rank, 1, comm, &reqs[num_reqs++]);
+            }else{
+                memcpy(recvbuf+count*(i/b)*typeSize, sendbuf, count * typeSize);
+                for(int j=0; j<nprocs/b; j++){
+                    if(j==node_id )
+                        continue;
+                    int dst = j*b + node_rank;
+                    MPI_Isend(sendbuf, count, datatype, dst, 1, comm, &reqs[num_reqs++]);
+                }
+            }
+        }
         MPI_Waitall(num_reqs, reqs, MPI_STATUS_IGNORE);
     }
 
@@ -467,9 +486,9 @@ int main(int argc, char** argv) {
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
     
     // Set parameters
-    int k = 3;  // Radix parameter
+    int k = 2;  // Radix parameter
     int b = 3;  // Block size parameter
-    int count = 7;  // Number of elements per process
+    int count = 4;  // Number of elements per process
     
     // Check if we have command line arguments
     if (argc > 1) count = atoi(argv[1]);
@@ -583,7 +602,7 @@ int main(int argc, char** argv) {
         std::cout << "\nResults after intra_gather_k_nomial:" << std::endl;
     }
     MPI_Barrier(MPI_COMM_WORLD);
-    if (rank%b == rank/b) {
+    if (rank%b == (rank/b)%b) {
         
 
 
@@ -599,7 +618,7 @@ int main(int argc, char** argv) {
 
 
 
-    std::vector<float> recvbuf2(count * b);
+    std::vector<float> recvbuf2(count * b*2);
 
     MPI_Barrier(MPI_COMM_WORLD);
 
@@ -618,7 +637,7 @@ int main(int argc, char** argv) {
         MPI_Barrier(MPI_COMM_WORLD);
 
         std::cout << "  Rank " << rank << ": ";
-        for (int i = 0; i < count * b; i++) {
+        for (int i = 0; i < count * b*2; i++) {
             std::cout << recvbuf2[i] << " ";
 
         }
