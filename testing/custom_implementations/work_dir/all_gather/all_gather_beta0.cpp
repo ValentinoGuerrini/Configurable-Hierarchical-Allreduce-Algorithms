@@ -397,6 +397,12 @@ int intra_allgather_k_brucks(char* sendbuf, int count, MPI_Datatype datatype, ch
         delta *= k;
     }
 
+    int y = nprocs/b;
+    bool highn = b<y;
+
+
+
+    
     if(b_rank != 0) {
         // Rearrange data in the correct order
         memcpy(recvbuf, 
@@ -407,6 +413,21 @@ int intra_allgather_k_brucks(char* sendbuf, int count, MPI_Datatype datatype, ch
                 tmp_recv_buffer, 
                 (b - b_rank) * count * typeSize);
                 
+        free(tmp_recv_buffer);
+    }
+
+    if(highn){
+        // allocate new tmp buffer
+        tmp_recv_buffer = (char*) malloc(nprocs * count * typeSize);  // Fixed'size' to 'nprocs'
+
+        // copy recv_buf to tmp_recv_buffer
+        memcpy(tmp_recv_buffer, recvbuf, nprocs * count * typeSize);
+
+        int tmp_count = count / (y/b);
+
+        for(int i = 0, j = 0; i < y; i++, j+=(y/b)){
+            memcpy(recvbuf + i*tmp_count*typeSize, tmp_recv_buffer + (j%(y) + j/(y))*tmp_count*typeSize, tmp_count*typeSize);
+        }
         free(tmp_recv_buffer);
     }
 
@@ -487,7 +508,7 @@ int main(int argc, char** argv) {
     
     // Set parameters
     int k = 2;  // Radix parameter
-    int b = 3;  // Block size parameter
+    int b = 4;  // Block size parameter
     int count = 4;  // Number of elements per process
     
     // Check if we have command line arguments
@@ -615,10 +636,12 @@ int main(int argc, char** argv) {
         std::cout << std::endl;
     }
 
+    int mult = nprocs/(b*b);
 
 
 
-    std::vector<float> recvbuf2(count * b*2);
+
+    std::vector<float> recvbuf2(count * b*mult);
 
     MPI_Barrier(MPI_COMM_WORLD);
 
@@ -637,16 +660,16 @@ int main(int argc, char** argv) {
         MPI_Barrier(MPI_COMM_WORLD);
 
         std::cout << "  Rank " << rank << ": ";
-        for (int i = 0; i < count * b*2; i++) {
+        for (int i = 0; i < count * b*mult; i++) {
             std::cout << recvbuf2[i] << " ";
 
         }
         std::cout << std::endl;
 
-    std::vector<float> recvbuf3(count * nprocs);
+    std::vector<float> recvbuf3(count * nprocs*mult);
 
     int result3 = intra_allgather_k_brucks(
-        (char*)recvbuf2.data(), count*b, MPI_FLOAT,
+        (char*)recvbuf2.data(), count*b*mult, MPI_FLOAT,
         (char*)recvbuf3.data(), MPI_COMM_WORLD, k, b
     );
 
