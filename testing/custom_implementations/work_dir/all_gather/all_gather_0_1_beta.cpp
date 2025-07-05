@@ -3,6 +3,8 @@
 #include <vector>
 #include <fstream>
 #include <cstdlib>
+#include <cstring>   // for std::memcpy / memcpy
+#include <cmath>     // for std::ceil
 
 #define CHECK_ALLOCATIONS(...) \
     if ((__VA_ARGS__)) { \
