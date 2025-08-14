@@ -370,6 +370,7 @@ int allgather_radix_batch(char* sendbuf, int sendcount, MPI_Datatype datatype, c
 
 }
 
+#ifdef DEBUG
 
 int main(int argc, char *argv[]) {
     int rank, size;
@@ -378,7 +379,7 @@ int main(int argc, char *argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
     /* default radix and batch */
-    int k = 3, b = 4;
+    int k = 6, b = 32;
     if (argc >= 3) {
         k = atoi(argv[1]);
         b = atoi(argv[2]);
@@ -473,3 +474,6 @@ int main(int argc, char *argv[]) {
     MPI_Finalize();
     return 0;
 }
+
+
+#endif
