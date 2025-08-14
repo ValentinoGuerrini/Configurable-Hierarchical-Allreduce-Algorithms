@@ -371,6 +371,7 @@ int allgather_radix_batch(char* sendbuf, int sendcount, MPI_Datatype datatype, c
 
 }
 
+#ifdef DEBUG
 
 int main(int argc, char *argv[]) {
     int rank, size;
@@ -474,3 +475,6 @@ int main(int argc, char *argv[]) {
     MPI_Finalize();
     return 0;
 }
+
+
+#endif
