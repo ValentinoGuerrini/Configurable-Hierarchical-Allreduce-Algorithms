@@ -144,12 +144,22 @@ int intra_allgather_k_brucks(char* sendbuf, int count, MPI_Datatype datatype, ch
     MPI_Comm_size(comm, &nprocs);
     MPI_Type_size(datatype, &typeSize);
 
+    int i, j, s;
+    int delta = 1;
+
+
     int b_rank = rank % b;  // Rank within the block
-    int group = std::ceil(rank / b);
+    int group = rank / b;
 
     int num_reqs = 0;
     int max = b - 1;
     int nphases = 0;
+    const int nnodes = nprocs / b;
+
+    const int nstages = nnodes/b;
+    char* tmp_recv_buffer;
+
+
 
     // Calculate number of phases
     while(max) {
@@ -169,95 +179,200 @@ int intra_allgather_k_brucks(char* sendbuf, int count, MPI_Datatype datatype, ch
         p_of_k = 1;
     }
 
-    char* tmp_recv_buffer;
+   
 
     if(b_rank == 0) {
         tmp_recv_buffer = recvbuf;
     } else {
-        tmp_recv_buffer = (char*) malloc(b * count * typeSize);  // Fixed 'size' to 'nprocs'
+        tmp_recv_buffer = (char*) malloc((nstages*b + nnodes%b) * count * typeSize);  // Fixed 'size' to 'nprocs'
         if (tmp_recv_buffer == NULL) {
             free(reqs);
             return MPI_ERR_NO_MEM;
         }
     }
 
-    // Copy local data to receive buffer
-    memcpy(tmp_recv_buffer, sendbuf, count * typeSize);
 
-    int i, j;
-    int delta = 1;
 
-    for(i = 0; i < nphases; i++) {
-        num_reqs = 0;
-        for(j = 1; j < k; j++) {
-            if(delta * j >= b)  // Fixed 'size' to 'nprocs'
-                break;
-                
-            dst = (b + (b_rank - delta * j)) % b + group*b;
-            src = (b_rank + delta * j) % b + group*b;  // Fixed 'size' to 'nprocs' and 'k' to 'j'
+    for(s = 0; s < nstages; s++){
+            // Copy local data to receive buffer
+        memcpy(tmp_recv_buffer, sendbuf, count * typeSize);
+    
 
-            int tmp_count;
-            if ((i == nphases - 1) && (!p_of_k)) {
-                tmp_count = count * delta;
-                int left_count = count * (b - delta * j);
-                if (j == k - 1) {
-                    tmp_count = left_count;
+        for(i = 0; i < nphases; i++) {
+            num_reqs = 0;
+            for(j = 1; j < k; j++) {
+                if(delta * j >= b)  // Fixed 'size' to 'nprocs'
+                    break;
+                    
+                dst = (b + (b_rank - delta * j)) % b + group*b;
+                src = (b_rank + delta * j) % b + group*b;  // Fixed 'size' to 'nprocs' and 'k' to 'j'
+
+                int tmp_count;
+                if ((i == nphases - 1) && (!p_of_k)) {
+                    tmp_count = count * delta;
+                    int left_count = count * (b - delta * j);
+                    if (j == k - 1) {
+                        tmp_count = left_count;
+                    } else {
+                        tmp_count = min(tmp_count, left_count);
+                    }
                 } else {
-                    tmp_count = min(tmp_count, left_count);
+                    tmp_count = count * delta;
                 }
-            } else {
-                tmp_count = count * delta;
+
+                MPI_Irecv(tmp_recv_buffer + j * count * delta * typeSize, 
+                            tmp_count, datatype, src, 1, comm, &reqs[num_reqs++]);
+
+                MPI_Isend(tmp_recv_buffer, tmp_count, datatype, 
+                            dst, 1, comm, &reqs[num_reqs++]);
             }
-
-            MPI_Irecv(tmp_recv_buffer + j * count * delta * typeSize, 
-                        tmp_count, datatype, src, 1, comm, &reqs[num_reqs++]);
-
-            MPI_Isend(tmp_recv_buffer, tmp_count, datatype, 
-                        dst, 1, comm, &reqs[num_reqs++]);
+            
+            MPI_Waitall(num_reqs, reqs, MPI_STATUS_IGNORE);
+            delta *= k;
         }
-        
-        MPI_Waitall(num_reqs, reqs, MPI_STATUS_IGNORE);
-        delta *= k;
+
+        if(b_rank != 0) {
+            // Rearrange data in the correct order
+            memcpy(recvbuf, 
+                    tmp_recv_buffer + (b - b_rank) * count * typeSize, 
+                    b_rank * count * typeSize);
+
+            memcpy(recvbuf + b_rank * count * typeSize, 
+                    tmp_recv_buffer, 
+                    (b - b_rank) * count * typeSize);
+                    
+            //free(tmp_recv_buffer);
+        }
+        delta = 1;
+
+        tmp_recv_buffer += b * count * typeSize;
+        recvbuf += b*count*typeSize;
+        sendbuf += count*typeSize;
     }
 
-    int y = nprocs/b;
-    bool highn = b<y;
+    int nu_count = nnodes%b;
+
+    if(nu_count != 0) {
+
+        if(b_rank < nu_count) {
+            memcpy(tmp_recv_buffer, sendbuf, count * typeSize);
+        } else {
+            free(tmp_recv_buffer-nstages*b*count*typeSize);
+            tmp_recv_buffer = recvbuf;
+        }
+
+        int active[b];
+        int send_sizes[nphases+1][b];
+        memset(send_sizes, 0, (nphases+1)*b*sizeof(int));
+        //sizes array
+
+        for(i =0; i< b; i++){
+            active[i] = i < nu_count ? 0 : -1;
+            send_sizes[0][i] = i < nu_count ? count : 0;
+
+            //initialize sizes to 1 block if i < nnodes%b  nproc/b 0 otherwise 
+        }
 
 
+
+        int isrc,idst;
+        int received;
+
+        for(i = 0; i < nphases; i++) {
+            num_reqs = 0;
+
+            received = send_sizes[i][b_rank];
+            
+            for(j = 1; j < k; j++) {
+                if(delta * j >= b){
+
+                    for(int l = 0; l < b; l++){
+                        if(active[l] == i){
+                                active[l] = i+1;
+
+                        }
+                        send_sizes[i+1][l] += send_sizes[i][l];
+                    }
+
+
+                    break;
+
+                }  
+
+                
+
+                
+
+                isrc = (b_rank + delta * j) % b;
+                idst = (b + (b_rank - delta * j)) % b;
+                    
+                dst = idst + group*b;
+                src = isrc + group*b;  // Fixed 'size' to 'nprocs' and 'k' to 'j'
+
+                
+                int ssssize;
+                ssssize = min(send_sizes[i][isrc], (nu_count) * count - received);
+                if(active[isrc] == i && ssssize > 0){
+                    MPI_Irecv(tmp_recv_buffer + received * typeSize, 
+                            ssssize, datatype, src, 1, comm, &reqs[num_reqs++]);
+                    
+                    received += ssssize;
+                }
+                ssssize = min(send_sizes[i][b_rank], (nu_count) * count - (send_sizes[i][idst] + send_sizes[i+1][idst]));
+
+                if(active[b_rank] == i && ssssize > 0){
+                    MPI_Isend(tmp_recv_buffer, ssssize , datatype, 
+                            dst, 1, comm, &reqs[num_reqs++]);
+                            
+                }
+
+                for(int l = 0; l < b; l++){
+                    if(active[l] == i){
+                        active[( b+ (l - delta * j)) % b] = active[(b+ (l - delta * j)) % b] != i ? i+1 : i;
+
+                        
+                        send_sizes[i+1][(b + (l - delta * j)) % b] += send_sizes[i][l];
+                        
+                        if(j == k-1){
+                            active[l] = i+1;
+                        }
+                    }
+                    if(j == k-1){
+                        send_sizes[i+1][l] += send_sizes[i][l];
+                    }
+
+                }
+
+            }
+            MPI_Waitall(num_reqs, reqs, MPI_STATUS_IGNORE);
+            delta *= k;
+            
+        }
+
+        if(b_rank != 0 && b_rank < nu_count) {
+            // Rearrange data in the correct order
+            memcpy(recvbuf, 
+                    tmp_recv_buffer + ((nu_count) - b_rank) * count * typeSize, 
+                    b_rank * count * typeSize);
+
+            memcpy(recvbuf + b_rank * count * typeSize, 
+                    tmp_recv_buffer, 
+                    ((nu_count) - b_rank) * count * typeSize);
+
+            // memcpy(recvbuf, tmp_recv_buffer, count* (nnodes%b) * typeSize);
+            free(tmp_recv_buffer-nstages*b*count*typeSize);
+        }
+
+    }else if(b_rank != 0){
+        free(tmp_recv_buffer-nstages*b*count*typeSize);
+    }
 
     
-    if(b_rank != 0) {
-        // Rearrange data in the correct order
-        memcpy(recvbuf, 
-                tmp_recv_buffer + (b - b_rank) * count * typeSize, 
-                b_rank * count * typeSize);
 
-        memcpy(recvbuf + b_rank * count * typeSize, 
-                tmp_recv_buffer, 
-                (b - b_rank) * count * typeSize);
-                
-        free(tmp_recv_buffer);
-    }
-
-    if(highn){
-        // allocate new tmp buffer
-        tmp_recv_buffer = (char*) malloc(nprocs * count * typeSize);  // Fixed'size' to 'nprocs'
-
-        // copy recv_buf to tmp_recv_buffer
-        memcpy(tmp_recv_buffer, recvbuf, nprocs * count * typeSize);
-
-        int tmp_count = count / (y/b);
-
-        for(int i = 0, j = 0; i < y; i++, j+=(y/b)){
-            memcpy(recvbuf + i*tmp_count*typeSize, tmp_recv_buffer + (j%(y) + j/(y))*tmp_count*typeSize, tmp_count*typeSize);
-        }
-        free(tmp_recv_buffer);
-    }
 
     free(reqs);
     return MPI_SUCCESS;
 }
-
 
 int inter_allgather_linear(char* sendbuf, int sendcount, MPI_Datatype datatype, char* recvbuf, MPI_Comm comm, int b){
     int rank, nprocs, typeSize;
@@ -269,48 +384,35 @@ int inter_allgather_linear(char* sendbuf, int sendcount, MPI_Datatype datatype, 
 
     int node_id = rank/b;
     int node_rank = rank%b;
+    int nnodes = nprocs/b;
 
     
 
     MPI_Request* reqs = (MPI_Request*) malloc(((nprocs/b)*(nprocs/(b*b)) * sizeof(MPI_Request)));
 
-    bool highn = b<(nprocs/b);
+    bool highn = b<nnodes;
+
+    int i,j;
+    bool rootCond;
 
 
-
-    if(b==nprocs/b){
-        if(node_id!=node_rank){
-            MPI_Irecv(recvbuf, count, datatype, node_rank*b + node_rank, 1 , comm, &reqs[num_reqs++]);
-
-        }else{
-            memcpy(recvbuf, sendbuf, count * typeSize);
-            for(int i=0; i<b; i++){
-                if(i==node_id)
-                    continue;
-                int dst = i*b + node_rank;
-                MPI_Isend(sendbuf, count, datatype, dst, 1, comm, &reqs[num_reqs++]);
-            }
-            
-        }
-
-        MPI_Waitall(num_reqs, reqs, MPI_STATUS_IGNORE);
-    }else if(highn){
-        ///DOES NOT WORK IF NN!=K*B
-        for(int i=0; i<nprocs/(b); i+=b){
-            if((node_id - i) != node_rank){
-                MPI_Irecv(recvbuf+count*(i/b)*typeSize, count, datatype, (i+node_rank)*b + node_rank, 1, comm, &reqs[num_reqs++]);
-            }else{
-                memcpy(recvbuf+count*(i/b)*typeSize, sendbuf, count * typeSize);
-                for(int j=0; j<nprocs/b; j++){
+    for(i = 0; i<nnodes; i+=b){
+        rootCond = ((node_id - i) == node_rank);
+        if(!rootCond && (i+node_rank < nnodes)){
+            MPI_Irecv(recvbuf+count*(i/b)*typeSize, count, datatype, (i+node_rank)*b + node_rank, 1, comm, &reqs[num_reqs++]);
+        }else if(rootCond){
+            memcpy(recvbuf+count*(i/b)*typeSize, sendbuf, count * typeSize);
+                for(j=0; j<nnodes; j++){
                     if(j==node_id )
                         continue;
                     int dst = j*b + node_rank;
                     MPI_Isend(sendbuf, count, datatype, dst, 1, comm, &reqs[num_reqs++]);
                 }
-            }
         }
         MPI_Waitall(num_reqs, reqs, MPI_STATUS_IGNORE);
     }
+
+
 
 
     free(reqs);
@@ -325,17 +427,21 @@ int allgather_radix_batch(char* sendbuf, int sendcount, MPI_Datatype datatype, c
     MPI_Type_size(datatype, &typeSize);
 
     char* tmp_recv_buffer = (char*) malloc(nprocs * sendcount * typeSize);
+    char* tmp_recv_buffer2 = (char*) malloc(nprocs * sendcount * typeSize);
+    
+    
+
 
     result = intra_gather_k_nomial(sendbuf, sendcount, datatype, tmp_recv_buffer, comm, k, b);
     if(result != MPI_SUCCESS){
         return result;
     }
     
-    result = inter_allgather_linear(tmp_recv_buffer, sendcount, datatype, recvbuf, comm, b);
+    result = inter_allgather_linear(tmp_recv_buffer, sendcount, datatype, tmp_recv_buffer2, comm, b);
     if(result != MPI_SUCCESS){
         return result;
     }
-    result = intra_allgather_k_brucks(recvbuf, sendcount*(nprocs/b), datatype, recvbuf, comm, k, b);
+    result = intra_allgather_k_brucks(tmp_recv_buffer2, sendcount*b, datatype, recvbuf, comm, k, b);
     if(result!= MPI_SUCCESS){
         return result;
     }
@@ -352,7 +458,7 @@ int main(int argc, char *argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
     /* default radix and batch */
-    int k = 2, b = 16;
+    int k = 2, b = 5;
     if (argc >= 3) {
         k = atoi(argv[1]);
         b = atoi(argv[2]);

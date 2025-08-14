@@ -446,16 +446,17 @@ int inter_allgather_linear(char* sendbuf, int sendcount, MPI_Datatype datatype, 
 
     int node_id = rank/b;
     int node_rank = rank%b;
+    int nnodes = nprocs/b;
 
     
 
     MPI_Request* reqs = (MPI_Request*) malloc(((nprocs/b)*(nprocs/(b*b)) * sizeof(MPI_Request)));
 
-    bool highn = b<(nprocs/b);
+    bool highn = b<nnodes;
 
 
 
-    if(b==nprocs/b){
+    if(b==nnodes){
         if(node_id!=node_rank){
             MPI_Irecv(recvbuf, count, datatype, node_rank*b + node_rank, 1 , comm, &reqs[num_reqs++]);
 
@@ -472,13 +473,12 @@ int inter_allgather_linear(char* sendbuf, int sendcount, MPI_Datatype datatype, 
 
         MPI_Waitall(num_reqs, reqs, MPI_STATUS_IGNORE);
     }else if(highn){
-        ///DOES NOT WORK IF NN!=K*B
-        for(int i=0; i<nprocs/(b); i+=b){
+        for(int i=0; i<nnodes; i+=b){
             if((node_id - i) != node_rank){
                 MPI_Irecv(recvbuf+count*(i/b)*typeSize, count, datatype, (i+node_rank)*b + node_rank, 1, comm, &reqs[num_reqs++]);
             }else{
                 memcpy(recvbuf+count*(i/b)*typeSize, sendbuf, count * typeSize);
-                for(int j=0; j<nprocs/b; j++){
+                for(int j=0; j<nnodes; j++){
                     if(j==node_id )
                         continue;
                     int dst = j*b + node_rank;
