@@ -1,9 +1,9 @@
 #!/bin/bash -l
-#PBS -l select=32:system=polaris
+#PBS -l select=2:system=polaris
 #PBS -l place=scatter
 #PBS -l walltime=0:30:00
 #PBS -l filesystems=home:eagle
-#PBS -q prod
+#PBS -q debug
 #PBS -A UIC-HPC
 
 cd ${PBS_O_WORKDIR}

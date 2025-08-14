@@ -3,6 +3,7 @@
 #include <vector>
 #include <fstream>
 #include <cstdlib>
+#include <cstring>   // for std::memcpy / memcpy
 
 #define CHECK_ALLOCATIONS(...) \
     if ((__VA_ARGS__)) { \
@@ -378,7 +379,7 @@ int main(int argc, char *argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
     /* default radix and batch */
-    int k = 3, b = 4;
+    int k = 6, b = 32;
     if (argc >= 3) {
         k = atoi(argv[1]);
         b = atoi(argv[2]);

@@ -1,3 +1,5 @@
 testing/plots/plots_env/
 .DS_Store
 **/.DS_Store
+testing/custom_implementations/work_dir/all_gather/out
+testing/custom_implementations/work_dir/all_gather/runner_polaris_allgather.sh.*
