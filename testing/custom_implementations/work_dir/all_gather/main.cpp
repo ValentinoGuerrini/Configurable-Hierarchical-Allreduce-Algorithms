@@ -115,7 +115,7 @@ int main(int argc, char** argv) {
     //
     int n_iter;
     bool overwrite = false;
-    int b = 5; // default value
+    int b = 32; // default value
 
     if (argc < 2 || argc > 4) {
         if (rank == 0) {
@@ -148,7 +148,7 @@ int main(int argc, char** argv) {
     std::ofstream csv;
     if (rank == 0) {
         // check whether results.csv already exists
-        std::string filename = "results_" + std::to_string(nprocs/b) + ".csv";
+        std::string filename = "results.csv";
         bool exists = std::ifstream(filename).good();
 
         if (overwrite || !exists) {

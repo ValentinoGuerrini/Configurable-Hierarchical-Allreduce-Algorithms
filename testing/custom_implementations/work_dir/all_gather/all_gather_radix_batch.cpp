@@ -45,6 +45,7 @@ int allgather_radix_batch(char* sendbuf, int sendcount, MPI_Datatype datatype, c
     int node_id = rank/b;
     int node_rank = rank%b;
     int nnodes = nprocs/b;
+    const int nstages = nnodes/b;
     int group = rank / b;
 
     int i,j;
@@ -67,7 +68,7 @@ int allgather_radix_batch(char* sendbuf, int sendcount, MPI_Datatype datatype, c
             sendcount * typeSize);
 
     // scratch array for up to (k-1) outstanding Irecvs
-    MPI_Request* reqs = (MPI_Request*)malloc(100*nnodes+2*(k - 1) * sizeof(*reqs));
+    MPI_Request* reqs = (MPI_Request*)malloc(((nstages+1)*(1+nnodes)+2*(k - 1)) * sizeof(MPI_Request));
 
     if (!reqs) { free(kgather_tmp_buf); return MPI_ERR_NO_MEM; }
 
@@ -90,7 +91,7 @@ int allgather_radix_batch(char* sendbuf, int sendcount, MPI_Datatype datatype, c
                 int childNorm = gstart + j*delta;
                 if (childNorm >= b) break;
                 int subtree = delta;
-                if (phase == nphases - 1 && !p_of_k)
+                if (/*phase == nphases - 1 && */!p_of_k)
                     subtree = std::min(subtree, b - childNorm);
 
                 // recv into the *normalized* slot “childNorm”
@@ -106,7 +107,7 @@ int allgather_radix_batch(char* sendbuf, int sendcount, MPI_Datatype datatype, c
         else if ((offset % delta) == 0 && offset < groupSize) {
             // I am a child‐subtree root → send my normalized block up
             int subtree = delta;
-            if (phase == nphases - 1 && !p_of_k)
+            if (/*phase == nphases - 1 && */!p_of_k)
                 subtree = std::min(subtree, b - shift);
 
             MPI_Request sreq;
@@ -138,15 +139,14 @@ int allgather_radix_batch(char* sendbuf, int sendcount, MPI_Datatype datatype, c
     /// ------------- PHASE 2 INTER ALLGATHER LINEAR-----------
 
     bool rootCond;
-    const int nstages = nnodes/b;
-    num_reqs = 0;
-    char* tmp_recv_buffer;
+    
 
-    char* intra_tmp_buf = (char*)malloc((nnodes/b + 1)*count*typeSize);
+    char* intra_tmp_buf = (char*)malloc((nstages + 1)*count*typeSize);
     if (!intra_tmp_buf) return MPI_ERR_NO_MEM;
 
 
     for(i = 0; i<nnodes; i+=b){
+        num_reqs = 0;
         rootCond = ((node_id - i) == node_rank);
         if(!rootCond && (i+node_rank < nnodes)){
             MPI_Irecv(intra_tmp_buf+count*(i/b)*typeSize, count, datatype, (i+node_rank)*b + node_rank, 1, comm, &reqs[num_reqs++]);
@@ -169,6 +169,9 @@ int allgather_radix_batch(char* sendbuf, int sendcount, MPI_Datatype datatype, c
     
 
     ///-----------PHASE 3 INTRA ALLGATHER K BRUCKS-------------
+
+    char* tmp_recv_buffer;
+    
 
     if(node_rank == 0) {
         tmp_recv_buffer = recvbuf;
@@ -357,19 +360,22 @@ int allgather_radix_batch(char* sendbuf, int sendcount, MPI_Datatype datatype, c
     }
 
 
-
+    free(intra_tmp_buf-nstages*count*typeSize);
 
     free(kgather_tmp_buf);
 
     free(inter_tmp_buf);
 
     free(reqs);
+
+
     return MPI_SUCCESS;
     
 
 
 
 }
+
 
 #ifdef DEBUG
 
