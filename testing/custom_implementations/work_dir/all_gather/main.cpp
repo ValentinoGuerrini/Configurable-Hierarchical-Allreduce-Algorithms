@@ -115,7 +115,8 @@ int main(int argc, char** argv) {
     //
     int n_iter;
     bool overwrite = false;
-    int b = 32;      // default value
+
+    int b = 104;      // default value
     int base = 8;     // default value
 
     if (argc < 2 || argc > 5) {
