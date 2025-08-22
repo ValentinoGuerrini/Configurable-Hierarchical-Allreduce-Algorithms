@@ -115,12 +115,13 @@ int main(int argc, char** argv) {
     //
     int n_iter;
     bool overwrite = false;
-    int b = 32; // default value
+    int b = 104;      // default value
+    int base = 8;     // default value
 
-    if (argc < 2 || argc > 4) {
+    if (argc < 2 || argc > 5) {
         if (rank == 0) {
             std::cerr << "Usage: " << argv[0]
-                    << " <n_iter> [--overwrite] [b=<value>]\n";
+                    << " <n_iter> [--overwrite] [b=<value>] [base=<value>]\n";
         }
         MPI_Finalize();
         return EXIT_FAILURE;
@@ -133,6 +134,8 @@ int main(int argc, char** argv) {
             overwrite = true;
         } else if (std::strncmp(argv[i], "b=", 2) == 0) {
             b = std::atoi(argv[i] + 2);
+        } else if (std::strncmp(argv[i], "base=", 5) == 0) {
+            base = std::atoi(argv[i] + 5);
         } else {
             if (rank == 0) {
                 std::cerr << "Unknown parameter: " << argv[i] << "\n";
@@ -148,7 +151,7 @@ int main(int argc, char** argv) {
     std::ofstream csv;
     if (rank == 0) {
         // check whether results.csv already exists
-        std::string filename = "results.csv";
+        std::string filename = "results" + std::to_string(nprocs/b) + ".csv";
         bool exists = std::ifstream(filename).good();
 
         if (overwrite || !exists) {
@@ -162,12 +165,11 @@ int main(int argc, char** argv) {
         }
     }
 
-    const int base = 8;
     for (int i = 0; i < n_iter; ++i) {
         int count = base << i;
 
         // Algorithms with k + single_phase_recv
-        for (int k = 2; k < b; ++k) {
+        for (int k = 2; k < b; k+=3) {
         run_k_b("allgather_radix_batch", k, b, count, allgather_radix_batch,
                 MPI_COMM_WORLD, csv, rank, nprocs, MPI_INT);
 
