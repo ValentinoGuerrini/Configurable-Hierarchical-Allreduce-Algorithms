@@ -5,4 +5,6 @@ testing/custom_implementations/work_dir/all_gather/out
 testing/custom_implementations/work_dir/all_gather/runner_polaris_allgather.sh.*
 testing/custom_implementations/work_dir/all_gather/results.csv
 testing/custom_implementations/work_dir/all_gather/test
+testing/custom_implementations/work_dir/all_gather/test2
+testing/custom_implementations/work_dir/all_gather/*.csv
 testing/custom_implementations/work_dir/all_gather/tester_polaris_allgather.sh.*
