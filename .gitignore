@@ -12,3 +12,5 @@ testing/custom_implementations/work_dir/all_gather/out
 testing/custom_implementations/work_dir/all_gather/tester_polaris_allgather.sh.*
 testing/custom_implementations/work_dir/all_gather/tester_aurora_allgather.sh.*
 
+
+testing/custom_implementations/work_dir/reduce_scatter/debug_plots
