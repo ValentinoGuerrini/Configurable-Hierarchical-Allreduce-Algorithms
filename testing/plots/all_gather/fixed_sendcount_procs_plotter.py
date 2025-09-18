@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import math
 
 # === Load CSV ===
-CSV_PATH = "results_aurora.csv"
+CSV_PATH = "results_polaris.csv"
 df = pd.read_csv(CSV_PATH)
 
 # Keep only correct runs

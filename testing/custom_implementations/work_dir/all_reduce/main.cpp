@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
         if (overwrite || !exists) {
             // truncate (or create) + write header
             csv.open("results.csv", std::ios::out | std::ios::trunc);
-            csv << "algorithm_name,k,nprocs,send_count,time,is_correct\n";
+            csv << "algorithm_name,k,b,nprocs,send_count,time,is_correct\n";
         }
         else {
             // append, no header
@@ -153,8 +153,8 @@ int main(int argc, char** argv) {
 
         // Algorithms with k + single_phase_recv
         for (int k = 2; k < b; ++k) {
-            run_k2("all_reduce_semi_radix_batch", k, count,
-                   all_reduce_semi_radix_batch,
+            run_k2("all_reduce_radix_batch", k, count,
+                   all_reduce_radix_batch,
                    MPI_COMM_WORLD, csv, rank, nprocs, b);
 
         }
