@@ -15,7 +15,7 @@ int all_reduce_semi_radix_batch(char *sendbuf, char *recvbuf, int count,
                                 MPI_Datatype datatype, MPI_Op op, MPI_Comm comm,
                                 int k, int b)
 {
-    (void)k; (void)b;  // unused in pure-MPI version
+    
 
     int rank, nprocs, typesize;
     MPI_Comm_rank(comm, &rank);

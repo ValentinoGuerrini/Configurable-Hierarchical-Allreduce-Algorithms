@@ -73,38 +73,6 @@ void run_k2(const std::string& name, int k, int count, Func func,
     }
 }
 
-// Run variants with a single 'k' parameter
-template<typename Func>
-void run_k1(const std::string& name, int k, int count, Func func,
-            MPI_Comm comm, std::ofstream& csv, int rank, int nprocs) {
-    std::vector<double> sendbuf(count), refbuf(count), recvbuf(count);
-    for (int i = 0; i < count; ++i)
-        sendbuf[i] = rank * static_cast<double>(count) + i;
-    MPI_Allreduce(sendbuf.data(), refbuf.data(), count,
-                  MPI_DOUBLE, MPI_SUM, comm);
-
-    for (int rep = 0; rep < 50; ++rep) {
-        std::fill(recvbuf.begin(), recvbuf.end(), 0.0);
-        MPI_Barrier(comm);
-        double t0 = MPI_Wtime();
-
-        int err = func(reinterpret_cast<char*>(sendbuf.data()),
-                       reinterpret_cast<char*>(recvbuf.data()),
-                       count, MPI_DOUBLE, MPI_SUM, comm,
-                       k);
-
-        MPI_Barrier(comm);
-        double t1 = MPI_Wtime();
-
-        bool correct = (err == MPI_SUCCESS)
-                       && check_correctness(recvbuf, refbuf);
-        if (rank == 0) {
-            csv << name << "," << k << "," <<nprocs<<","<< count << ","
-                << (t1 - t0) << "," << (correct?1:0) << "\n";
-            csv.flush();
-        }
-    }
-}
 
 // Run variants without any 'k' parameter
 template<typename Func>
@@ -131,7 +99,7 @@ void run_no_k(const std::string& name, int count, Func func,
         bool correct = (err == MPI_SUCCESS)
                        && check_correctness(recvbuf, refbuf);
         if (rank == 0) {
-            csv << name << ",0," <<nprocs<<","<< count << ","
+            csv << name << ",0,"<<"0," <<nprocs<<","<< count << ","
                 << (t1 - t0) << "," << (correct?1:0) << "\n";
             csv.flush();
         }
@@ -144,7 +112,7 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
-    int b = 3;
+    int b = 32;
 
     //
     // Parse arguments:  program <n_iter> [--overwrite]
