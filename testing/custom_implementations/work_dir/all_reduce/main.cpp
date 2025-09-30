@@ -24,6 +24,10 @@ bool check_correctness(const std::vector<double>& buf,
 }
 
 
+int all_reduce_radix_batch(char *sendbuf, char *recvbuf, int count,
+                                MPI_Datatype datatype, MPI_Op op, MPI_Comm comm,
+                                int k, int b);
+
 int all_reduce_semi_radix_batch(char *sendbuf, char *recvbuf, int count,
                                 MPI_Datatype datatype, MPI_Op op, MPI_Comm comm,
                                 int k, int b);
@@ -153,8 +157,8 @@ int main(int argc, char** argv) {
 
         // Algorithms with k + single_phase_recv
         for (int k = 2; k < b; ++k) {
-            run_k2("all_reduce_radix_batch", k, count,
-                   all_reduce_radix_batch,
+            run_k2("all_reduce_semi_radix_batch", k, count,
+                   all_reduce_semi_radix_batch,
                    MPI_COMM_WORLD, csv, rank, nprocs, b);
 
         }
