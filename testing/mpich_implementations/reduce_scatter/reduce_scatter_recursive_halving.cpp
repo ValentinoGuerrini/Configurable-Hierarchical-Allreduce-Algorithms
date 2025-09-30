@@ -259,7 +259,7 @@ static int MPICH_Recexchalgo_get_neighbors(int rank, int nranks, int *k_, int *s
 
 }
 
-int MPICH_reduce_scatter(const char* sendbuf, char* recvbuf, int count, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm) {
+int MPICH_reduce_scatter_rec_halving(const char* sendbuf, char* recvbuf, int count, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm) {
 
     int rank, comm_size, i;
     int extent;
@@ -405,6 +405,8 @@ int MPICH_reduce_scatter(const char* sendbuf, char* recvbuf, int count, MPI_Data
 
 }
 
+#ifdef DEBUG_MODE
+
 int main(int argc, char *argv[]) {
     MPI_Init(&argc, &argv);
 
@@ -464,7 +466,7 @@ int main(int argc, char *argv[]) {
     //
     // === Now call your reduce_scatter_radix_block ===
     //
-    int mpi_err = MPICH_reduce_scatter(
+    int mpi_err = MPICH_reduce_scatter_rec_halving(
         reinterpret_cast<char*>(sendbuf.data()),
         reinterpret_cast<char*>(recvbuf.data()),
         count,
@@ -551,3 +553,5 @@ int main(int argc, char *argv[]) {
     MPI_Finalize();
     return 0;
 }
+
+#endif
