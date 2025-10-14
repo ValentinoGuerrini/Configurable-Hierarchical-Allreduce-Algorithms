@@ -16,3 +16,7 @@ testing/custom_implementations/work_dir/all_gather/tester_aurora_allgather.sh.*
 testing/custom_implementations/work_dir/reduce_scatter/debug_plots
 testing/custom_implementations/work_dir/all_reduce/runner_polaris_allreduce.sh.*
 testing/custom_implementations/work_dir/all_reduce/out
+
+.vscode/
+testing/custom_implementations/work_dir/reduce_scatter/all_buffers.txt
+testing/custom_implementations/work_dir/reduce_scatter/out

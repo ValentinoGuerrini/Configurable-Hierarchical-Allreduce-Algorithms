@@ -1,10 +1,4 @@
-
-#include <mpi.h>
-#include <iostream>
-#include <cstring>   // for memcpy, memmove, etc.
-#include <vector>
-#include <fstream>
-#include <cstdlib>
+#include "reduce_scatter.hpp"
 
 #define MAX_RADIX 8
 
@@ -404,6 +398,8 @@ int MPICH_reduce_scatter_rec_halving(const char* sendbuf, char* recvbuf, int cou
 
 
 }
+
+
 
 #ifdef DEBUG_MODE
 
