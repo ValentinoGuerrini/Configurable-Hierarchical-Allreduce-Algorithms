@@ -2,8 +2,6 @@
 
 //#define DEBUG_MODE
 
-static inline MPI_Aint aint_max(MPI_Aint a, MPI_Aint b) { return (a > b) ? a : b; }
-static inline int ipow(int k, int p) { int r = 1; while (--p) r *= k; return r; }
 
 
 static int MPICH_Recexchalgo_get_neighbors(int rank, int nranks, int *k_, int *step1_sendto, int **step1_recvfrom_, int *step1_nrecvs, int ***step2_nbrs_, int *step2_nphases, int *p_of_k_, int *T_){
@@ -217,10 +215,7 @@ int MPICH_reduce_scatter_radix(const void *sendbuf, void *recvbuf,
     int **step2_nbrs = NULL;
     int nranks, rank, p_of_k, T, dst;
     int i, phase, offset;
-    int dtcopy_id = -1, send_id = -1, recv_id = -1, reduce_id = -1, step1_id = -1;
-    int nvtcs, vtcs[2];
     void *tmp_recvbuf = NULL, *tmp_results = NULL;
-    int tag, vtx_id;
     int num_reqs = 0;
    
 
@@ -258,19 +253,14 @@ int MPICH_reduce_scatter_radix(const void *sendbuf, void *recvbuf,
         mpi_errno = MPI_Send(buf_to_send, (int)total_count, datatype, step1_sendto, 0, comm);
     }else{
         for(i = 0; i < step1_nrecvs; i++){
-            nvtcs = 1;
             num_reqs = 0;
-            vtcs[0] = (i == 0) ? dtcopy_id : reduce_id;
             mpi_errno = MPI_Irecv((char*)tmp_recvbuf, total_count, datatype, step1_recvfrom[i], 0, comm , &reqs[num_reqs++]);
             
             if(mpi_errno != MPI_SUCCESS) {
                 std::cout<<"Error in MPI_Recv"<<std::endl;
                 goto fn_fail;
             }
-            nvtcs ++;
             
-            vtcs[1] = recv_id;
-
             mpi_errno = MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
             
             mpi_errno = MPI_Reduce_local(tmp_recvbuf, tmp_results, total_count, datatype, op);
@@ -292,13 +282,6 @@ int MPICH_reduce_scatter_radix(const void *sendbuf, void *recvbuf,
             int send_cnt = 0, recv_cnt = 0;
             num_reqs = 0;
             /* Both send and recv have similar dependencies */
-            nvtcs = 1;
-            if (phase == step2_nphases - 1 && i == 0) {
-                vtcs[0] = step1_id;
-            } else {
-                vtcs[0] = reduce_id;
-            }
-
             MPICH_Recexchalgo_get_count_and_offset(dst, phase, k, nranks, &send_cnt, &offset);
 
             int send_offset = offset * extent * recvcount;
@@ -320,9 +303,7 @@ int MPICH_reduce_scatter_radix(const void *sendbuf, void *recvbuf,
                 goto fn_fail;
             }
 
-            nvtcs = 2;
-            vtcs[1] = recv_id;
-            vtcs[0] = send_id;
+
 
             mpi_errno = MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
 
@@ -338,9 +319,6 @@ int MPICH_reduce_scatter_radix(const void *sendbuf, void *recvbuf,
 
 
     if(in_step2){
-        nvtcs = 1;
-        vtcs[0] = reduce_id;
-
         memcpy(recvbuf, (char*)tmp_results + rank * recvcount * extent, recvcount * extent);
     }
 
@@ -360,8 +338,6 @@ int MPICH_reduce_scatter_radix(const void *sendbuf, void *recvbuf,
 
 
     for(i = 0; i < step1_nrecvs; i++) {
-        nvtcs = 1;
-        vtcs[0] = reduce_id;
         mpi_errno = MPI_Isend((char*) tmp_results + recvcount * step1_recvfrom[i] * extent, recvcount, datatype, step1_recvfrom[i], 0, comm, &reqs[num_reqs++]);
     }
 
