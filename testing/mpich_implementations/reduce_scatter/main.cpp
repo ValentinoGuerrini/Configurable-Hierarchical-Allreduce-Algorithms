@@ -140,7 +140,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    const int base = 1;
+    const int base = 8;
     for (int i = 0; i < n_iter; ++i) {
         int count = base << i;
 
