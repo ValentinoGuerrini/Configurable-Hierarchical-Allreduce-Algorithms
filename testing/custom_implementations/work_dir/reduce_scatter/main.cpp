@@ -22,7 +22,61 @@ bool check_correctness(const std::vector<T>& buf,
     return true;
 }
 
-int reduce_scatter_radix_block(char *sendbuf, char *recvbuf, int count, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm, int r , int b);
+int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
+                               MPI_Aint recvcount, MPI_Datatype datatype,
+                               MPI_Op op, MPI_Comm comm, int k, int b);
+
+int inter_reduce_linear(const void *sendbuf, void *recvbuf,
+                        MPI_Aint recvcount, MPI_Datatype datatype,
+                        MPI_Op op, MPI_Comm comm, int b);
+
+int intra_scatter_radix_batch(char* sendbuf,
+                              int   recvcount,
+                              MPI_Datatype datatype,
+                              char* recvbuf,
+                              MPI_Comm comm,
+                              int k,
+                              int b);
+
+int reduce_scatter_radix_block(char *sendbuf, char *recvbuf, int count, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm, int r , int b){
+
+    int mpi_errno = MPI_SUCCESS;
+
+    int type_size = 0;
+    MPI_Type_size(datatype, &type_size);
+
+    MPI_Aint intra_recvcount = count * b;
+    int size;
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    MPI_Aint total_recv_elems = intra_recvcount * (size/(b*b) + ((size%(b*b)==0)?0:1));
+
+    char* tmp = (char*) malloc(type_size*total_recv_elems);
+
+    mpi_errno = intra_reduce_scatter_radix_batch(sendbuf, tmp, count, datatype, op, comm, r, b);
+    if(mpi_errno != MPI_SUCCESS){
+        return mpi_errno;
+    }
+
+    char* tmp2 = (char*) malloc(type_size*intra_recvcount);
+
+    
+
+    mpi_errno = inter_reduce_linear(tmp, tmp2, count, datatype, op, comm, b);
+    if(mpi_errno != MPI_SUCCESS){
+        return mpi_errno;
+    }
+
+    mpi_errno = intra_scatter_radix_batch( tmp2, count, datatype, recvbuf, comm, r, b);
+
+
+
+    free(tmp2);
+    free(tmp);
+
+    return mpi_errno;
+
+};
 
 
 template<typename Func>
@@ -163,8 +217,8 @@ int main(int argc, char** argv) {
     int n_iter;
     bool overwrite = false;
 
-    int b = 5;      // default value
-    int base = 8;     // default value
+    int b = 4;      // default value
+    int base = 1;     // default value
 
     if (argc < 2 || argc > 5) {
         if (rank == 0) {

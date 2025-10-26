@@ -6,7 +6,7 @@
 #include <fstream>
 #include <cstdlib>
 
-#define DEBUG_MODE
+// #define DEBUG_MODE
 
 static int MPICH_Recexchalgo_get_neighbors(int rank, int nranks, int *k_, int *step1_sendto, int **step1_recvfrom_, int *step1_nrecvs, int ***step2_nbrs_, int *step2_nphases, int *p_of_k_, int *T_){
     int mpi_errno = MPI_SUCCESS;
@@ -205,7 +205,7 @@ static int MPICH_Recexchalgo_get_count_and_offset(int rank, int phase, int k, in
 
 // Stand-alone, overlapped radix-k Reduce_scatter_block (recexch-style).
 // Assumes 'op' is commutative (like MPICH's intra_recexch path).
-int MPICH_reduce_scatter_radix(const void *sendbuf, void *recvbuf,
+int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
                                MPI_Aint recvcount, MPI_Datatype datatype,
                                MPI_Op op, MPI_Comm comm, int k, int b)
 {
@@ -247,6 +247,11 @@ int MPICH_reduce_scatter_radix(const void *sendbuf, void *recvbuf,
     int intra_total_count = intra_recvcount * b;
 
     int total_count = recvcount * nranks;
+
+    int nu_count = nnodes%b;
+
+    int max_sendcount = 0;
+    int max_recvcount = 0;
 
     MPICH_Recexchalgo_get_neighbors(node_rank, b, &k, &step1_sendto, &step1_recvfrom, &step1_nrecvs, &step2_nbrs, &step2_nphases, &p_of_k, &T);
 
@@ -387,13 +392,110 @@ int MPICH_reduce_scatter_radix(const void *sendbuf, void *recvbuf,
 
     }
 
-    //add to the buffers
-
-    //end the stage iterations
-
-
 
     //last stage if needed
+
+    
+
+    if(nu_count != 0){
+
+        int idst;
+
+        for (phase = step2_nphases - 1; phase >= 0 && step1_sendto == -1; phase--) {
+            for (i = 0; i < k - 1; i++) {
+                idst = step2_nbrs[phase][i];
+                dst = idst + b*node_id;
+                int send_cnt = 0, recv_cnt = 0;
+                num_reqs = 0;
+                /* Both send and recv have similar dependencies */
+
+                
+
+                MPICH_Recexchalgo_get_count_and_offset(idst, phase, k, b, &send_cnt, &offset);//to this destination we are gonna send send_cnt packets 
+
+                int send_offset = offset * extent * intra_recvcount;
+
+                max_sendcount = std::min(send_cnt * intra_recvcount, (nu_count * intra_recvcount) - (offset * intra_recvcount));
+
+                if((send_offset < nu_count * intra_recvcount * extent) && (max_sendcount > 0)){
+                
+                    
+
+                    mpi_errno = MPI_Isend((char*) tmp_results + send_offset, max_sendcount, datatype, dst, 0, comm, &reqs[num_reqs++]);
+
+                    if(mpi_errno != MPI_SUCCESS) {
+                        std::cout<<"Error in MPI_Send"<<std::endl;
+                        goto fn_fail;
+                    }
+                }
+
+
+
+
+                MPICH_Recexchalgo_get_count_and_offset(node_rank, phase, k, b, &recv_cnt, &offset);
+
+                int recv_offset = offset * extent * intra_recvcount;
+
+                max_recvcount = std::min(recv_cnt * intra_recvcount, (nu_count * intra_recvcount) - (offset * intra_recvcount));
+
+                if((recv_offset < nu_count * intra_recvcount * extent) && (max_recvcount > 0)){
+
+                    
+
+                    mpi_errno = MPI_Irecv(tmp_recvbuf, max_recvcount, datatype, dst, 0, comm, &reqs[num_reqs++]);
+
+                    if(mpi_errno != MPI_SUCCESS) {
+                        std::cout<<"Error in MPI_Recv"<<std::endl;
+                        goto fn_fail;
+                    }
+                    //metti boolean received and in case do reduce
+
+
+                    mpi_errno = MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
+
+                    mpi_errno = MPI_Reduce_local(tmp_recvbuf, (char*)tmp_results + recv_offset, max_recvcount, datatype, op);
+
+                    if(mpi_errno != MPI_SUCCESS) {
+                        std::cout<<"Error in MPI_Reduce_local"<<std::endl;
+                        goto fn_fail;
+                    }
+                }
+
+
+
+            }
+        }
+
+         if(in_step2 && node_rank < nu_count){
+            memcpy(recvbuf, (char*)tmp_results + node_rank * intra_recvcount * extent, intra_recvcount * extent);
+        }
+
+        num_reqs = 0;
+
+
+
+
+
+        if(step1_sendto != -1 && node_rank < nu_count){
+            mpi_errno = MPI_Irecv(recvbuf, intra_recvcount, datatype, step1_sendto + b*node_id, 0, comm, &reqs[num_reqs++]);
+            if(mpi_errno != MPI_SUCCESS) {
+                std::cout<<"Error in MPI_Recv"<<std::endl;
+                goto fn_fail;
+            }
+        }
+
+
+        for(i = 0; i < step1_nrecvs; i++) {
+            if(intra_recvcount * step1_recvfrom[i] * extent < nu_count * intra_recvcount * extent)
+                mpi_errno = MPI_Isend((char*) tmp_results + intra_recvcount * step1_recvfrom[i] * extent, intra_recvcount, datatype, step1_recvfrom[i] + b*node_id, 0, comm, &reqs[num_reqs++]);
+        }
+
+        mpi_errno = MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
+
+
+
+
+    }
 
     //end of last stage
     
@@ -450,7 +552,7 @@ int main(int argc, char **argv) {
 
     // Defaults: recvcount=4 ints per rank, radix k=2, batch b=1
     MPI_Aint recvcount = 1;
-    int k = 3;
+    int k = 2;
     int b = 4;
 
     if (argc > 1) {
@@ -464,7 +566,7 @@ int main(int argc, char **argv) {
 
     MPI_Aint intra_recvcount = recvcount * b;
 
-    MPI_Aint total_recv_elems = intra_recvcount * (size/(b*b));
+    MPI_Aint total_recv_elems = intra_recvcount * (size/(b*b) + ((size%(b*b)==0)?0:1));
 
     int *sendbuf = (int *)malloc(total_elems * sizeof(int));
 
@@ -492,7 +594,7 @@ int main(int argc, char **argv) {
     }
 
     // Call your reduce_scatter implementation
-    int rc = MPICH_reduce_scatter_radix(
+    int rc = intra_reduce_scatter_radix_batch(
         (const void *)sendbuf,
         (void *)recvbuf,
         recvcount,
@@ -504,7 +606,7 @@ int main(int argc, char **argv) {
     );
 
     if (rc != MPI_SUCCESS) {
-        fprintf(stderr, "Rank %d: MPICH_reduce_scatter_radix returned error %d\n", rank, rc);
+        fprintf(stderr, "Rank %d: intra_reduce_scatter_radix_batch returned error %d\n", rank, rc);
         MPI_Abort(MPI_COMM_WORLD, rc);
     }
 
