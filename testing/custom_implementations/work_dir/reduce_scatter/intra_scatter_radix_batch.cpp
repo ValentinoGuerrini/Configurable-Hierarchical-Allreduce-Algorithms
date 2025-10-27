@@ -16,29 +16,29 @@ int intra_scatter_radix_batch(char* sendbuf,
                               int k,
                               int b)
 {
-    int rank, nprocs, typeSize;
+    int rank, nprocs, extent;
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &nprocs);
-    MPI_Type_size(datatype, &typeSize);
+    MPI_Type_size(datatype, &extent);
 
     if (k < 2 || b <= 0) return MPI_SUCCESS;
 
     const int node_id    = rank / b;        // which node
-    const int local_rank = rank %  b;       // slot within node
+    const int node_rank = rank %  b;       // slot within node
     const int root_local = node_id % b;     // node root (matches your gather)
-    const int shift      = (local_rank - root_local + b) % b; // normalized index
+    const int shift      = (node_rank - root_local + b) % b; // normalized index
 
     // #phases = ceil_log_k(b) without FP
     int nphases = 0, tmpb = b - 1;
     while (tmpb > 0) { ++nphases; tmpb /= k; }
 
     // tmp holds normalized slots [0..b-1] locally
-    const size_t bytes_per_block = (size_t)recvcount * (size_t)typeSize;
+    const size_t bytes_per_block = (size_t)recvcount * (size_t)extent;
     char* tmp = (char*)std::malloc((size_t)b * bytes_per_block);
     if (!tmp) return MPI_ERR_NO_MEM;
 
     // Only the node-root seeds the normalized layout
-    if (local_rank == root_local) {
+    if (node_rank == root_local) {
         for (int real_slot = 0; real_slot < b; ++real_slot) {
             const int norm_i = (real_slot - root_local + b) % b;
             std::memcpy(tmp + (size_t)norm_i * bytes_per_block,

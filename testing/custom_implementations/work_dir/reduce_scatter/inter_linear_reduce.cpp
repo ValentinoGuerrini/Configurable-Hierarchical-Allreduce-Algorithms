@@ -22,8 +22,11 @@ int inter_reduce_linear(const void *sendbuf, void *recvbuf,
     int node_id   = rank / b;    // 0..nnodes-1
     int node_rank = rank % b;    // 0..b-1
 
-    int type_size = 0;
-    MPI_Type_size(datatype, &type_size);
+    int nu_count = nnodes % b;
+    int nstages = nnodes / b;
+
+    int extent = 0;
+    MPI_Type_size(datatype, &extent);
 
     // Each (i) is a chunk reduced across nodes within a lane (node_rank)
     // Total elements per chunk = intra_recvcount = recvcount * b
@@ -33,13 +36,13 @@ int inter_reduce_linear(const void *sendbuf, void *recvbuf,
     if (intra_recvcount_aint > INT_MAX) return MPI_ERR_COUNT;
     int intra_recvcount = (int)intra_recvcount_aint;
 
-    size_t chunk_bytes = (size_t)intra_recvcount * (size_t)type_size;
+    size_t chunk_bytes = (size_t)intra_recvcount * (size_t)extent;
 
     // temp buffer used by roots to receive one message at a time
     void *tmp = malloc(chunk_bytes);
     if (!tmp) return MPI_ERR_NO_MEM;
 
-    int nIters = (nnodes % b == 0) ? (nnodes / b) : 1 + (nnodes / b); // number of rotating roots (i)
+    int nIters = (nu_count == 0) ? (nstages) : 1 + (nstages); // number of rotating roots (i)
     for (int i = 0; i < nIters; ++i) {
         int root_node = i * b + node_rank;        // 0..nnodes-1 (lane root for this i)
         if (root_node >= nnodes) continue;        // guard (shouldn’t happen if nnodes % b == 0)

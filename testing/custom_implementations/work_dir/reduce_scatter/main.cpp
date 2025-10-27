@@ -22,61 +22,65 @@ bool check_correctness(const std::vector<T>& buf,
     return true;
 }
 
-int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
+// int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
+//                                MPI_Aint recvcount, MPI_Datatype datatype,
+//                                MPI_Op op, MPI_Comm comm, int k, int b);
+
+// int inter_reduce_linear(const void *sendbuf, void *recvbuf,
+//                         MPI_Aint recvcount, MPI_Datatype datatype,
+//                         MPI_Op op, MPI_Comm comm, int b);
+
+// int intra_scatter_radix_batch(char* sendbuf,
+//                               int   recvcount,
+//                               MPI_Datatype datatype,
+//                               char* recvbuf,
+//                               MPI_Comm comm,
+//                               int k,
+//                               int b);
+
+int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
                                MPI_Aint recvcount, MPI_Datatype datatype,
                                MPI_Op op, MPI_Comm comm, int k, int b);
 
-int inter_reduce_linear(const void *sendbuf, void *recvbuf,
-                        MPI_Aint recvcount, MPI_Datatype datatype,
-                        MPI_Op op, MPI_Comm comm, int b);
+// int reduce_scatter_radix_block(char *sendbuf, char *recvbuf, int count, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm, int r , int b){
 
-int intra_scatter_radix_batch(char* sendbuf,
-                              int   recvcount,
-                              MPI_Datatype datatype,
-                              char* recvbuf,
-                              MPI_Comm comm,
-                              int k,
-                              int b);
+//     int mpi_errno = MPI_SUCCESS;
 
-int reduce_scatter_radix_block(char *sendbuf, char *recvbuf, int count, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm, int r , int b){
+//     int type_size = 0;
+//     MPI_Type_size(datatype, &type_size);
 
-    int mpi_errno = MPI_SUCCESS;
+//     MPI_Aint intra_recvcount = count * b;
+//     int size;
+//     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    int type_size = 0;
-    MPI_Type_size(datatype, &type_size);
+//     MPI_Aint total_recv_elems = intra_recvcount * (size/(b*b) + ((size%(b*b)==0)?0:1));
 
-    MPI_Aint intra_recvcount = count * b;
-    int size;
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
+//     char* tmp = (char*) malloc(type_size*total_recv_elems);
 
-    MPI_Aint total_recv_elems = intra_recvcount * (size/(b*b) + ((size%(b*b)==0)?0:1));
+//     mpi_errno = intra_reduce_scatter_radix_batch(sendbuf, tmp, count, datatype, op, comm, r, b);
+//     if(mpi_errno != MPI_SUCCESS){
+//         return mpi_errno;
+//     }
 
-    char* tmp = (char*) malloc(type_size*total_recv_elems);
-
-    mpi_errno = intra_reduce_scatter_radix_batch(sendbuf, tmp, count, datatype, op, comm, r, b);
-    if(mpi_errno != MPI_SUCCESS){
-        return mpi_errno;
-    }
-
-    char* tmp2 = (char*) malloc(type_size*intra_recvcount);
+//     char* tmp2 = (char*) malloc(type_size*intra_recvcount);
 
     
 
-    mpi_errno = inter_reduce_linear(tmp, tmp2, count, datatype, op, comm, b);
-    if(mpi_errno != MPI_SUCCESS){
-        return mpi_errno;
-    }
+//     mpi_errno = inter_reduce_linear(tmp, tmp2, count, datatype, op, comm, b);
+//     if(mpi_errno != MPI_SUCCESS){
+//         return mpi_errno;
+//     }
 
-    mpi_errno = intra_scatter_radix_batch( tmp2, count, datatype, recvbuf, comm, r, b);
+//     mpi_errno = intra_scatter_radix_batch( tmp2, count, datatype, recvbuf, comm, r, b);
 
 
 
-    free(tmp2);
-    free(tmp);
+//     free(tmp2);
+//     free(tmp);
 
-    return mpi_errno;
+//     return mpi_errno;
 
-};
+// };
 
 
 template<typename Func>
@@ -271,9 +275,9 @@ int main(int argc, char** argv) {
 
         // --- Algorithms with radix r and batch b (reduce-scatter, block variant)
         for (int r = 2; r < b; r += 1) {
-            run_r_b("reduce_scatter_radix_block",
+            run_r_b("reduce_scatter_radix_batch",
                     r, b, count,
-                    reduce_scatter_radix_block,
+                    reduce_scatter_radix_batch,
                     MPI_COMM_WORLD, csv, rank, nprocs,
                     MPI_INT, op);
         }

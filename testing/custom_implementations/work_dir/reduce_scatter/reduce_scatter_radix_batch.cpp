@@ -1,4 +1,3 @@
-
 #include <mpi.h>
 #include <iostream>
 #include <cstring>   // for memcpy, memmove, etc.
@@ -6,9 +5,8 @@
 #include <fstream>
 #include <cstdlib>
 
-// #define DEBUG_MODE
 
-static int MPICH_Recexchalgo_get_neighbors(int rank, int nranks, int *k_, int *step1_sendto, int **step1_recvfrom_, int *step1_nrecvs, int ***step2_nbrs_, int *step2_nphases, int *p_of_k_, int *T_){
+static inline int MPICH_Recexchalgo_get_neighbors(int rank, int nranks, int *k_, int *step1_sendto, int **step1_recvfrom_, int *step1_nrecvs, int ***step2_nbrs_, int *step2_nphases, int *p_of_k_, int *T_){
     int mpi_errno = MPI_SUCCESS;
     int i, j, k;
     int p_of_k = 1, log_p_of_k = 0, rem, T, newrank;
@@ -137,7 +135,7 @@ static int MPICH_Recexchalgo_get_neighbors(int rank, int nranks, int *k_, int *s
 
 }
 
-static int MPICH_Recexchalgo_origrank_to_step2rank(int rank, int rem, int T, int k)
+static inline int MPICH_Recexchalgo_origrank_to_step2rank(int rank, int rem, int T, int k)
 {
     int step2rank;
 
@@ -149,7 +147,7 @@ static int MPICH_Recexchalgo_origrank_to_step2rank(int rank, int rem, int T, int
 }
 
 
-static int MPICH_Recexchalgo_step2rank_to_origrank(int rank, int rem, int T, int k)
+static inline int MPICH_Recexchalgo_step2rank_to_origrank(int rank, int rem, int T, int k)
 {
     int orig_rank;
 
@@ -160,8 +158,45 @@ static int MPICH_Recexchalgo_step2rank_to_origrank(int rank, int rem, int T, int
     return orig_rank;
 }
 
+static inline void Recexchalgo_get_all_count_and_offset(int nranks, int max_phases, int k, int *count, int *offset){
+    int step2rank, min, max, orig_max, orig_min;
+    int k_power_phase = 1;
+    int p_of_k = 1, rem, T;
+    
+    
+    while (p_of_k <= nranks) {
+        p_of_k *= k;
+    }
+    p_of_k /= k; //THIS IS ALWAYS THE SAME, DOES NOT MAKE SENSE TO TALCULATE IT EVERY TIME
 
-static int MPICH_Recexchalgo_get_count_and_offset(int rank, int phase, int k, int nranks, int *count,
+    rem = nranks - p_of_k;
+    T = (rem * k) / (k - 1); //ALWAYS THE SAME
+
+    for(int phase = 0; phase < max_phases; phase++){
+        
+        for(int rank = 0; rank < nranks; rank++){
+            
+            step2rank = MPICH_Recexchalgo_origrank_to_step2rank(rank, rem, T, k);
+            /* Calculate min and max ranks of the range of ranks that 'rank'
+            * represents in phase 'phase' */
+            min = ((step2rank / k_power_phase) * k_power_phase) - 1;
+            max = min + k_power_phase;
+            /* convert (min,max] to their original ranks */
+            orig_min = (min >= 0) ? MPICH_Recexchalgo_step2rank_to_origrank(min, rem, T, k) : min;
+            orig_max = MPICH_Recexchalgo_step2rank_to_origrank(max, rem, T, k);
+
+            count[phase * nranks + rank] = orig_max - orig_min;
+            offset[phase * nranks + rank] = orig_min + 1;
+        }
+        k_power_phase *= k; //EVERY PHASE ONE K LESS
+            
+    
+    }
+
+}
+
+
+static inline int MPICH_Recexchalgo_get_count_and_offset(int rank, int phase, int k, int nranks, int *count,
                                           int *offset)
 {
     int mpi_errno = MPI_SUCCESS;
@@ -174,14 +209,14 @@ static int MPICH_Recexchalgo_get_count_and_offset(int rank, int phase, int k, in
     while (p_of_k <= nranks) {
         p_of_k *= k;
     }
-    p_of_k /= k; 
+    p_of_k /= k; //THIS IS ALWAYS THE SAME, DOES NOT MAKE SENSE TO TALCULATE IT EVERY TIME
 
     rem = nranks - p_of_k;
-    T = (rem * k) / (k - 1);
+    T = (rem * k) / (k - 1); //ALWAYS THE SAME
 
     /* k_power_phase is k^phase */
     while (phase > 0) {
-        k_power_phase *= k;
+        k_power_phase *= k; //EVERY PHASE ONE K LESS
         phase--;
     }
     /* Calculate rank in step2 */
@@ -200,12 +235,7 @@ static int MPICH_Recexchalgo_get_count_and_offset(int rank, int phase, int k, in
     return mpi_errno;
 }
 
-
-// ----------------- implementation -----------------
-
-// Stand-alone, overlapped radix-k Reduce_scatter_block (recexch-style).
-// Assumes 'op' is commutative (like MPICH's intra_recexch path).
-int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
+int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
                                MPI_Aint recvcount, MPI_Datatype datatype,
                                MPI_Op op, MPI_Comm comm, int k, int b)
 {
@@ -222,6 +252,8 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
     void *tmp_recvbuf = NULL, *tmp_results = NULL;
     int num_reqs = 0;
     int stage;
+    int nIters,delta;
+    void *tmp;
 
     int node_id;
     int nnodes;
@@ -241,6 +273,8 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
     nnodes = nranks / b;
     node_rank = rank % b;
     nstages = nnodes / b;
+    const int root_local = node_id % b; 
+    const int shift      = (node_rank - root_local + b) % b;
 
     int intra_recvcount = recvcount * b;
 
@@ -253,9 +287,24 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
     int max_sendcount = 0;
     int max_recvcount = 0;
 
+    int total_recv_elems = intra_recvcount * (nstages+ ((nu_count==0)?0:1));
+
+    int nphases = 0, tmpb = b - 1;
+    while (tmpb > 0) { ++nphases; tmpb /= k; }
+
+
+    char* phase1_buf = (char*) malloc(extent*total_recv_elems);
+    char *phase1_buf_start = phase1_buf;
+    char* phase2_buf = (char*) malloc(extent*intra_recvcount);
+
     MPICH_Recexchalgo_get_neighbors(node_rank, b, &k, &step1_sendto, &step1_recvfrom, &step1_nrecvs, &step2_nbrs, &step2_nphases, &p_of_k, &T);
 
-    MPI_Request* reqs = (MPI_Request*)malloc(sizeof(MPI_Request)* (step1_nrecvs + 1));
+    int *count = (int *)malloc(sizeof(int) * step2_nphases * b);
+    int *offsets = (int *)malloc(sizeof(int) * step2_nphases * b);
+
+    Recexchalgo_get_all_count_and_offset(b, step2_nphases, k, count, offsets);
+
+    MPI_Request* reqs = (MPI_Request*)malloc(sizeof(MPI_Request)* (step1_nrecvs + k));
 
     in_step2 = (step1_sendto == -1) ? 1 : 0;
 
@@ -320,7 +369,10 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
                 int send_cnt = 0, recv_cnt = 0;
                 num_reqs = 0;
                 /* Both send and recv have similar dependencies */
-                MPICH_Recexchalgo_get_count_and_offset(dst, phase, k, b, &send_cnt, &offset);
+                //MPICH_Recexchalgo_get_count_and_offset(dst, phase, k, b, &send_cnt, &offset);
+
+                send_cnt = count[phase * b + dst];
+                offset = offsets[phase * b + dst];
 
                 int send_offset = offset * extent * intra_recvcount;
 
@@ -331,7 +383,10 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
                     goto fn_fail;
                 }
 
-                MPICH_Recexchalgo_get_count_and_offset(node_rank, phase, k, b, &recv_cnt, &offset);
+                //MPICH_Recexchalgo_get_count_and_offset(node_rank, phase, k, b, &recv_cnt, &offset);
+
+                recv_cnt = count[phase * b + node_rank];
+                offset = offsets[phase * b + node_rank];
 
                 int recv_offset = offset * extent * intra_recvcount;
                 mpi_errno = MPI_Irecv(tmp_recvbuf, recv_cnt * intra_recvcount, datatype, dst + b*node_id, 0, comm, &reqs[num_reqs++]);
@@ -357,7 +412,7 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
 
         if(in_step2){
-            memcpy(recvbuf, (char*)tmp_results + node_rank * intra_recvcount * extent, intra_recvcount * extent);
+            memcpy(phase1_buf, (char*)tmp_results + node_rank * intra_recvcount * extent, intra_recvcount * extent);
         }
 
         num_reqs = 0;
@@ -367,7 +422,7 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
 
         if(step1_sendto != -1){
-            mpi_errno = MPI_Irecv(recvbuf, intra_recvcount, datatype, step1_sendto + b*node_id, 0, comm, &reqs[num_reqs++]);
+            mpi_errno = MPI_Irecv(phase1_buf, intra_recvcount, datatype, step1_sendto + b*node_id, 0, comm, &reqs[num_reqs++]);
             if(mpi_errno != MPI_SUCCESS) {
                 std::cout<<"Error in MPI_Recv"<<std::endl;
                 goto fn_fail;
@@ -387,7 +442,7 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
         tmp_results = (char*)tmp_results + (intra_total_count * extent);
         tmp_recvbuf = (char*)tmp_recvbuf + (intra_total_count * extent);
 
-        recvbuf = (char*)recvbuf + (intra_recvcount * extent);
+        phase1_buf = (char*)phase1_buf + (intra_recvcount * extent);
         
 
     }
@@ -411,7 +466,9 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
                 
 
-                MPICH_Recexchalgo_get_count_and_offset(idst, phase, k, b, &send_cnt, &offset);//to this destination we are gonna send send_cnt packets 
+                //MPICH_Recexchalgo_get_count_and_offset(idst, phase, k, b, &send_cnt, &offset);//to this destination we are gonna send send_cnt packets 
+                send_cnt = count[phase * b + idst];
+                offset = offsets[phase * b + idst];
 
                 int send_offset = offset * extent * intra_recvcount;
 
@@ -434,7 +491,9 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
 
 
-                MPICH_Recexchalgo_get_count_and_offset(node_rank, phase, k, b, &recv_cnt, &offset);
+                //MPICH_Recexchalgo_get_count_and_offset(node_rank, phase, k, b, &recv_cnt, &offset);
+                recv_cnt = count[phase * b + node_rank];
+                offset = offsets[phase * b + node_rank];
 
                 int recv_offset = offset * extent * intra_recvcount;
 
@@ -475,7 +534,7 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
         }
 
          if(in_step2 && node_rank < nu_count){
-            memcpy(recvbuf, (char*)tmp_results + node_rank * intra_recvcount * extent, intra_recvcount * extent);
+            memcpy(phase1_buf, (char*)tmp_results + node_rank * intra_recvcount * extent, intra_recvcount * extent);
         }
 
         num_reqs = 0;
@@ -485,7 +544,7 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
 
         if(step1_sendto != -1 && node_rank < nu_count){
-            mpi_errno = MPI_Irecv(recvbuf, intra_recvcount, datatype, step1_sendto + b*node_id, 0, comm, &reqs[num_reqs++]);
+            mpi_errno = MPI_Irecv(phase1_buf, intra_recvcount, datatype, step1_sendto + b*node_id, 0, comm, &reqs[num_reqs++]);
             if(mpi_errno != MPI_SUCCESS) {
                 std::cout<<"Error in MPI_Recv"<<std::endl;
                 goto fn_fail;
@@ -505,15 +564,109 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
     }
 
+//-------------BEGIN PHASE 2--------------------
+    phase1_buf = phase1_buf_start;
+
+    tmp = malloc(intra_recvcount * extent);
+
+    nIters = (nu_count == 0) ? (nstages) : 1 + (nstages); // number of rotating roots (i)
+    for (i = 0; i < nIters; ++i) {
+        int root_node = i * b + node_rank;        // 0..nnodes-1 (lane root for this i)
+        if (root_node >= nnodes) continue;        // guard (shouldn’t happen if nnodes % b == 0)
+        int root_rank = root_node * b + node_rank;
+
+        const char *my_chunk = (const char*)phase1_buf + i * intra_recvcount * extent;
+
+        if (node_id == root_node) {
+            // Initialize accumulator with local contribution
+            memcpy(phase2_buf, my_chunk, intra_recvcount * extent);
+
+            // Receive from every other node in my lane and accumulate
+            for (int j = 0; j < nnodes; ++j) {
+                if (j == node_id) continue;
+                int src_rank = j * b + node_rank;
+                MPI_Recv(tmp, intra_recvcount, datatype, src_rank, i, comm, MPI_STATUS_IGNORE);
+                // tmp (inbuf) reduced into phase2_buf (inoutbuf)
+                MPI_Reduce_local(tmp, phase2_buf, intra_recvcount, datatype, op);
+            }
+        } else {
+            // Non-root sends its lane-chunk to the root of this iteration
+            MPI_Send(my_chunk, intra_recvcount, datatype, root_rank, i, comm);
+        }
+    }
+
+//-------------END PHASE 2--------------------
 
 
-    //end of last stage
-    
+    if (node_rank == root_local) {
+        for (int real_slot = 0; real_slot < b; ++real_slot) {
+            const int norm_i = (real_slot - root_local + b) % b;
+            std::memcpy((char*)tmp + (size_t)norm_i * (recvcount * extent),
+                        phase2_buf + (size_t)real_slot * (recvcount * extent),
+                        (recvcount * extent));
+        }
+    }
+
+    delta = 1;
+    for (i = 1; i < nphases; ++i) delta *= k;
+
+    for (phase = nphases - 1; phase >= 0; --phase) {
+        const int groupSize = delta * k;                          // size of this k-ary group
+        const int gstart    = (shift / groupSize) * groupSize;    // leader of my group
+        const int blockEnd  = std::min(gstart + groupSize, b);    // cap at b
+        offset    = shift - gstart;                      // position inside group
+
+        if (offset == 0) {
+            // I am the leader of this group → send to child-group leaders
+            int ns = 0;
+            for (int j = 1; j < k; ++j) {
+                const int child = gstart + j * delta;             // leader of child subgroup
+                if (child >= blockEnd) break;
+
+                const int subtree = std::min(delta, blockEnd - child);
+
+                const int dst_local = (child + root_local) % b;   // map back to real local slot
+                const int dst_glob  = node_id * b + dst_local;
+
+                MPI_Isend((char*)tmp + (size_t)child * (recvcount * extent),
+                          subtree * recvcount, datatype,
+                          dst_glob, /*tag=*/phase, comm, &reqs[ns++]);
+            }
+            if (ns) MPI_Waitall(ns, reqs, MPI_STATUSES_IGNORE);
+        }
+        else if ((offset % delta) == 0 && offset < groupSize) {
+            // I am a child-subgroup leader → receive my subtree block from my parent (gstart)
+            const int parent    = gstart;                          // leader of parent group
+            const int src_local = (parent + root_local) % b;
+            const int src_glob  = node_id * b + src_local;
+
+            const int subtree = std::min(delta, blockEnd - shift);
+
+            MPI_Request rreq;
+            MPI_Irecv((char*)tmp + (size_t)shift * (recvcount * extent),
+                      subtree * recvcount, datatype,
+                      src_glob, /*tag=*/phase, comm, &rreq);
+            MPI_Wait(&rreq, MPI_STATUS_IGNORE);
+            // After this phase, I'll be a leader for my smaller subgroups in later (smaller delta) phases.
+        }
+
+        // next phase uses smaller delta
+        delta = (phase > 0 ? delta / k : delta);
+    }
+
+    // Each rank extracts its own block from normalized index = shift
+    std::memcpy(recvbuf,
+                (char*)tmp + (size_t)shift * (recvcount * extent),
+                (recvcount * extent));
 
 
 
 
 fn_exit:
+
+    free(tmp);
+    free(phase1_buf_start);
+    free(phase2_buf);
 
     if(step2_nbrs != NULL){
         for(i = 0; i < step2_nphases && step2_nbrs[i] != NULL; i++)
@@ -539,104 +692,3 @@ fn_fail:
 
     
 }
-
-
-#ifdef DEBUG_MODE
-
-static void print_int_array(const char *label, const int *a, size_t n) {
-    printf("%s [", label);
-    for (size_t i = 0; i < n; i++) {
-        if (i) printf(", ");
-        printf("%d", a[i]);
-    }
-    printf("]\n");
-    fflush(stdout);
-}
-
-int main(int argc, char **argv) {
-    MPI_Init(&argc, &argv);
-
-    int rank = -1, size = 0;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-
-    // Defaults: recvcount=4 ints per rank, radix k=2, batch b=1
-    MPI_Aint recvcount = 1;
-    int k = 2;
-    int b = 4;
-
-    if (argc > 1) {
-        long long rc = atoll(argv[1]);
-        if (rc > 0) recvcount = (MPI_Aint)rc;
-    }
-    if (argc > 2) k = atoi(argv[2]);
-    if (argc > 3) b = atoi(argv[3]);
-
-    size_t total_elems = (size_t)recvcount * (size_t)size;
-
-    MPI_Aint intra_recvcount = recvcount * b;
-
-    MPI_Aint total_recv_elems = intra_recvcount * (size/(b*b) + ((size%(b*b)==0)?0:1));
-
-    int *sendbuf = (int *)malloc(total_elems * sizeof(int));
-
-    int *recvbuf = (int *)malloc((size_t)total_recv_elems * sizeof(int));
-
-    if (!sendbuf || !recvbuf) {
-        if (rank == 0) fprintf(stderr, "Allocation failed\n");
-        MPI_Abort(MPI_COMM_WORLD, 1);
-    }
-
-    // Fill sendbuf with recognizable pattern: all entries = rank+1
-    // After a SUM reduce-scatter(block), each recv element should be sum_{r=0..size-1}(r+1) = size*(size+1)/2
-    for (size_t i = 0; i < total_elems; i++) {
-        sendbuf[i] = rank + 1 + 100*(i/intra_recvcount);
-    }
-
-    // Print "before" (each rank prints its own sendbuf)
-    MPI_Barrier(MPI_COMM_WORLD);
-    for (int r = 0; r < size; r++) {
-        if (r == rank) {
-            printf("Rank %d BEFORE:\n", rank);
-            print_int_array("  sendbuf", sendbuf, total_elems);
-        }
-        MPI_Barrier(MPI_COMM_WORLD);
-    }
-
-    // Call your reduce_scatter implementation
-    int rc = intra_reduce_scatter_radix_batch(
-        (const void *)sendbuf,
-        (void *)recvbuf,
-        recvcount,
-        MPI_INT,
-        MPI_SUM,
-        MPI_COMM_WORLD,
-        k,
-        b
-    );
-
-    if (rc != MPI_SUCCESS) {
-        fprintf(stderr, "Rank %d: intra_reduce_scatter_radix_batch returned error %d\n", rank, rc);
-        MPI_Abort(MPI_COMM_WORLD, rc);
-    }
-
-    // Print "after" (each rank prints its recvbuf)
-    MPI_Barrier(MPI_COMM_WORLD);
-    for (int r = 0; r < size; r++) {
-        if (r == rank) {
-            int expected = size * (size + 1) / 2;
-            printf("Rank %d AFTER (expected each entry = %d):\n", rank, expected);
-            print_int_array("  recvbuf", recvbuf, (size_t)total_recv_elems);
-        }
-        MPI_Barrier(MPI_COMM_WORLD);
-    }
-
-    free(sendbuf);
-    free(recvbuf);
-
-    MPI_Finalize();
-    return 0;
-}
-
-
-#endif
