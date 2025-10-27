@@ -287,7 +287,7 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
             buf_to_send = recvbuf;
         else
             buf_to_send = (void *) sendbuf;
-        mpi_errno = MPI_Send(buf_to_send, (int)total_count, datatype, step1_sendto + b*node_id, 0, comm);//here should be total_count
+        mpi_errno = MPI_Isend(buf_to_send, (int)total_count, datatype, step1_sendto + b*node_id, 0, comm, &reqs[num_reqs++]);
     }else{
         for(i = 0; i < step1_nrecvs; i++){
             num_reqs = 0;
@@ -395,7 +395,7 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
     //last stage if needed
 
-    
+
 
     if(nu_count != 0){
 
@@ -407,7 +407,7 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
                 dst = idst + b*node_id;
                 int send_cnt = 0, recv_cnt = 0;
                 num_reqs = 0;
-                /* Both send and recv have similar dependencies */
+                // Both send and recv have similar dependencies 
 
                 
 
@@ -416,6 +416,8 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
                 int send_offset = offset * extent * intra_recvcount;
 
                 max_sendcount = std::min(send_cnt * intra_recvcount, (nu_count * intra_recvcount) - (offset * intra_recvcount));
+
+
 
                 if((send_offset < nu_count * intra_recvcount * extent) && (max_sendcount > 0)){
                 
@@ -437,10 +439,11 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
                 int recv_offset = offset * extent * intra_recvcount;
 
                 max_recvcount = std::min(recv_cnt * intra_recvcount, (nu_count * intra_recvcount) - (offset * intra_recvcount));
+                bool received = false;
 
                 if((recv_offset < nu_count * intra_recvcount * extent) && (max_recvcount > 0)){
 
-                    
+                    received = true;
 
                     mpi_errno = MPI_Irecv(tmp_recvbuf, max_recvcount, datatype, dst, 0, comm, &reqs[num_reqs++]);
 
@@ -451,8 +454,13 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
                     //metti boolean received and in case do reduce
 
 
+                }
+
+
+                if(num_reqs)
                     mpi_errno = MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
 
+                if(received){
                     mpi_errno = MPI_Reduce_local(tmp_recvbuf, (char*)tmp_results + recv_offset, max_recvcount, datatype, op);
 
                     if(mpi_errno != MPI_SUCCESS) {
@@ -496,6 +504,8 @@ int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
 
     }
+
+
 
     //end of last stage
     

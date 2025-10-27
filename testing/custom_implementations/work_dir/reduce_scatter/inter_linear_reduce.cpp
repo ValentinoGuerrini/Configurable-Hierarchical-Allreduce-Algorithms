@@ -4,7 +4,7 @@
 #include <vector>
 #include <fstream>
 #include <cstdlib>
-
+#include <climits>
 
 //#define DEBUG_MODE
 

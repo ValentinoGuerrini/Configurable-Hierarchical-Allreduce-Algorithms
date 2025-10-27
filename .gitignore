@@ -11,7 +11,7 @@ testing/custom_implementations/work_dir/all_gather/test2
 testing/custom_implementations/work_dir/all_gather/out
 testing/custom_implementations/work_dir/all_gather/tester_polaris_allgather.sh.*
 testing/custom_implementations/work_dir/all_gather/tester_aurora_allgather.sh.*
-
+testing/custom_implementations/work_dir/reduce_scatter/runner_polaris_reduce_scatter.sh.*
 
 testing/mpich_implementations/reduce_scatter/runner_polaris_reduce_scatter.sh.*
 testing/mpich_implementations/reduce_scatter/out
