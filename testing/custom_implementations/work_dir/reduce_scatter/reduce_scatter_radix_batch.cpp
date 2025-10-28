@@ -235,10 +235,18 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
     nnodes = nranks / b;
     node_rank = rank % b;
     nstages = nnodes / b;
+
     const int root_local = node_id % b; 
+
+    int root_node, root_rank, src_rank;
+
+    char* my_chunk;
+
     const int shift      = (node_rank - root_local + b) % b;
 
     int intra_recvcount = recvcount * b;
+
+    int recvbytes = recvcount * extent;
 
     int intra_total_count = intra_recvcount * b;
 
@@ -249,15 +257,32 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
     int max_sendcount = 0;
     int max_recvcount = 0;
 
+    int idst;
+
+    const int intra_recvbytes = intra_recvcount * extent;
+
+    const int max_offset = nu_count * intra_recvbytes;
+
+    int send_cnt, recv_cnt, send_offset, recv_offset;
+
+    bool received;
+
     int total_recv_elems = intra_recvcount * (nstages+ ((nu_count==0)?0:1));
 
     int nphases = 0, tmpb = b - 1;
-    while (tmpb > 0) { ++nphases; tmpb /= k; }
+    
+    delta = 1;
+    while (tmpb > 0) { ++nphases; tmpb /= k; delta*=k; }
+    delta/=k;
+
+    int groupSize, gstart, blockEnd, child, subtree, dst_local, dst_glob, src_local, src_glob, parent , real_slot, norm_i, j;
+    
 
 
     char* phase1_buf = (char*) malloc(extent*total_recv_elems);
+
     char *phase1_buf_start = phase1_buf;
-    char* phase2_buf = (char*) malloc(extent*intra_recvcount);
+    char* phase2_buf = (char*) malloc(intra_recvbytes);
 
     MPICH_Recexchalgo_get_neighbors(node_rank, b, &k, &step1_sendto, &step1_recvfrom, &step1_nrecvs, &step2_nbrs, &step2_nphases, &p_of_k, &T);
 
@@ -294,29 +319,23 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
     if(!in_step2){
         void *buf_to_send;
+
         if (is_inplace)
             buf_to_send = recvbuf;
         else
             buf_to_send = (void *) sendbuf;
-        mpi_errno = MPI_Isend(buf_to_send, (int)total_count, datatype, step1_sendto + b*node_id, 0, comm, &reqs[num_reqs++]);
+        
+            MPI_Isend(buf_to_send, (int)total_count, datatype, step1_sendto + b*node_id, 0, comm, &reqs[num_reqs++]);
     }else{
         for(i = 0; i < step1_nrecvs; i++){
             num_reqs = 0;
-            mpi_errno = MPI_Irecv((char*)tmp_recvbuf, total_count, datatype, step1_recvfrom[i] + b*node_id, 0, comm , &reqs[num_reqs++]);//here should be total_count
 
-            if(mpi_errno != MPI_SUCCESS) {
-                std::cout<<"Error in MPI_Recv"<<std::endl;
-                goto fn_fail;
-            }
+            MPI_Irecv((char*)tmp_recvbuf, total_count, datatype, step1_recvfrom[i] + b*node_id, 0, comm , &reqs[num_reqs++]);//here should be total_count
             
-            mpi_errno = MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
+            MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
             
-            mpi_errno = MPI_Reduce_local(tmp_recvbuf, tmp_results, total_count, datatype, op);//here should be total_count
+            MPI_Reduce_local(tmp_recvbuf, tmp_results, total_count, datatype, op);//here should be total_count
            
-            if(mpi_errno != MPI_SUCCESS) {
-                std::cout<<"Error in MPI_Reduce_local"<<std::endl;
-                goto fn_fail;
-            }
         }
     }
 
@@ -328,7 +347,7 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
         for (phase = step2_nphases - 1; phase >= 0 && step1_sendto == -1; phase--) {
             for (i = 0; i < k - 1; i++) {
                 dst = step2_nbrs[phase][i];
-                int send_cnt = 0, recv_cnt = 0;
+                send_cnt = 0, recv_cnt = 0;
                 num_reqs = 0;
                 /* Both send and recv have similar dependencies */
                 //MPICH_Recexchalgo_get_count_and_offset(dst, phase, k, b, &send_cnt, &offset);
@@ -336,75 +355,51 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
                 send_cnt = count[phase * b + dst];
                 offset = offsets[phase * b + dst];
 
-                int send_offset = offset * extent * intra_recvcount;
+                send_offset = offset * intra_recvbytes;
 
-                mpi_errno = MPI_Isend((char*) tmp_results + send_offset, send_cnt * intra_recvcount, datatype, dst + b*node_id, 0, comm, &reqs[num_reqs++]);
+                MPI_Isend((char*) tmp_results + send_offset, send_cnt * intra_recvcount, datatype, dst + b*node_id, 0, comm, &reqs[num_reqs++]);
 
-                if(mpi_errno != MPI_SUCCESS) {
-                    std::cout<<"Error in MPI_Send"<<std::endl;
-                    goto fn_fail;
-                }
-
-                //MPICH_Recexchalgo_get_count_and_offset(node_rank, phase, k, b, &recv_cnt, &offset);
 
                 recv_cnt = count[phase * b + node_rank];
                 offset = offsets[phase * b + node_rank];
 
-                int recv_offset = offset * extent * intra_recvcount;
-                mpi_errno = MPI_Irecv(tmp_recvbuf, recv_cnt * intra_recvcount, datatype, dst + b*node_id, 0, comm, &reqs[num_reqs++]);
+                recv_offset = offset * intra_recvbytes;
+                MPI_Irecv(tmp_recvbuf, recv_cnt * intra_recvcount, datatype, dst + b*node_id, 0, comm, &reqs[num_reqs++]);
 
-                if(mpi_errno != MPI_SUCCESS) {
-                    std::cout<<"Error in MPI_Recv"<<std::endl;
-                    goto fn_fail;
-                }
+                MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
 
+                MPI_Reduce_local(tmp_recvbuf, (char*)tmp_results + recv_offset, recv_cnt * intra_recvcount, datatype, op);
 
-
-                mpi_errno = MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
-
-                mpi_errno = MPI_Reduce_local(tmp_recvbuf, (char*)tmp_results + recv_offset, recv_cnt * intra_recvcount, datatype, op);
-
-                if(mpi_errno != MPI_SUCCESS) {
-                    std::cout<<"Error in MPI_Reduce_local"<<std::endl;
-                    goto fn_fail;
-                }
 
             }
-        }
-
-
-        if(in_step2){
-            memcpy(phase1_buf, (char*)tmp_results + node_rank * intra_recvcount * extent, intra_recvcount * extent);
         }
 
         num_reqs = 0;
 
+        if(in_step2){
+            memcpy(phase1_buf, (char*)tmp_results + node_rank * intra_recvbytes, intra_recvbytes);
+        }
 
-
-
+        
 
         if(step1_sendto != -1){
-            mpi_errno = MPI_Irecv(phase1_buf, intra_recvcount, datatype, step1_sendto + b*node_id, 0, comm, &reqs[num_reqs++]);
-            if(mpi_errno != MPI_SUCCESS) {
-                std::cout<<"Error in MPI_Recv"<<std::endl;
-                goto fn_fail;
-            }
+            MPI_Irecv(phase1_buf, intra_recvcount, datatype, step1_sendto + b*node_id, 0, comm, &reqs[num_reqs++]);
         }
 
 
         for(i = 0; i < step1_nrecvs; i++) {
-            mpi_errno = MPI_Isend((char*) tmp_results + intra_recvcount * step1_recvfrom[i] * extent, intra_recvcount, datatype, step1_recvfrom[i] + b*node_id, 0, comm, &reqs[num_reqs++]);
+            MPI_Isend((char*) tmp_results + intra_recvcount * step1_recvfrom[i] * extent, intra_recvcount, datatype, step1_recvfrom[i] + b*node_id, 0, comm, &reqs[num_reqs++]);
         }
 
 
 
 
-        mpi_errno = MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
+        MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
 
         tmp_results = (char*)tmp_results + (intra_total_count * extent);
         tmp_recvbuf = (char*)tmp_recvbuf + (intra_total_count * extent);
 
-        phase1_buf = (char*)phase1_buf + (intra_recvcount * extent);
+        phase1_buf = (char*)phase1_buf + (intra_recvbytes);
         
 
     }
@@ -418,17 +413,6 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
 
     if(nu_count != 0){
-
-        int idst;
-        const int intra_recvbytes = intra_recvcount * extent;
-
-        const int max_offset = nu_count * intra_recvbytes;
-
-        int send_cnt, recv_cnt, send_offset, recv_offset;
-
-        bool received;
-
-
 
         for (phase = step2_nphases - 1; phase >= 0 && step1_sendto == -1; phase--) {
             num_reqs = 0;
@@ -449,21 +433,8 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
                 max_sendcount = std::min(send_cnt, (nu_count - offset));
 
-
-
                 if((send_offset < max_offset) && (max_sendcount > 0)){
-
-                    mpi_errno = MPI_Isend((char*) tmp_results + send_offset, max_sendcount * intra_recvcount, datatype, dst, 0, comm, &reqs[num_reqs++]);
-
-                    if(node_rank >= nu_count)
-                    {
-                        break;
-                    }
-                    
-                    if(mpi_errno != MPI_SUCCESS) {
-                        std::cout<<"Error in MPI_Send"<<std::endl;
-                        goto fn_fail;
-                    }
+                    MPI_Isend((char*) tmp_results + send_offset, max_sendcount * intra_recvcount, datatype, dst, 0, comm, &reqs[num_reqs++]);
                 }
 
 
@@ -481,26 +452,21 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
                 if(received){
 
-                    mpi_errno = MPI_Irecv(tmp_recvbuf, max_recvcount * intra_recvcount, datatype, dst, 0, comm, &reqs[num_reqs++]);
+                    MPI_Irecv(tmp_recvbuf, max_recvcount * intra_recvcount, datatype, dst, 0, comm, &reqs[num_reqs++]);
 
-                    mpi_errno = MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
+                    MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
                     
-                    mpi_errno = MPI_Reduce_local(tmp_recvbuf, (char*)tmp_results + recv_offset, max_recvcount * intra_recvcount, datatype, op);
+                    MPI_Reduce_local(tmp_recvbuf, (char*)tmp_results + recv_offset, max_recvcount * intra_recvcount, datatype, op);
                     
                     num_reqs = 0;
 
-                    if(mpi_errno != MPI_SUCCESS) {
-                        std::cout<<"Error in MPI_Recv or recude local"<<std::endl;
-                        goto fn_fail;
-                    }
-                    
                 }
 
 
 
             }
-            if(num_reqs)
-                mpi_errno = MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
+            
+            MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
         }
 
          if(in_step2 && node_rank < nu_count){
@@ -509,52 +475,52 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
         num_reqs = 0;
 
-
-
-
-
         if(step1_sendto != -1 && node_rank < nu_count){
-            mpi_errno = MPI_Irecv(phase1_buf, intra_recvcount, datatype, step1_sendto + b*node_id, 0, comm, &reqs[num_reqs++]);
-            if(mpi_errno != MPI_SUCCESS) {
-                std::cout<<"Error in MPI_Recv"<<std::endl;
-                goto fn_fail;
-            }
+            MPI_Irecv(phase1_buf, intra_recvcount, datatype, step1_sendto + b*node_id, 0, comm, &reqs[num_reqs++]);
         }
 
 
         for(i = 0; i < step1_nrecvs; i++) {
-            if(intra_recvcount * step1_recvfrom[i] * extent < max_offset)
-                mpi_errno = MPI_Isend((char*) tmp_results + intra_recvcount * step1_recvfrom[i] * extent, intra_recvcount, datatype, step1_recvfrom[i] + b*node_id, 0, comm, &reqs[num_reqs++]);
+            if(intra_recvbytes * step1_recvfrom[i] < max_offset)
+                MPI_Isend((char*) tmp_results + intra_recvbytes * step1_recvfrom[i], intra_recvcount, datatype, step1_recvfrom[i] + b*node_id, 0, comm, &reqs[num_reqs++]);
         }
 
-        mpi_errno = MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
+         MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
 
 
 
 
     }
 
+
+    
+
 //-------------BEGIN PHASE 2--------------------
     phase1_buf = phase1_buf_start;
 
-    tmp = malloc(intra_recvcount * extent);
+    tmp = malloc(intra_recvbytes);
 
     nIters = (nu_count == 0) ? (nstages) : 1 + (nstages); // number of rotating roots (i)
     for (i = 0; i < nIters; ++i) {
-        int root_node = i * b + node_rank;        // 0..nnodes-1 (lane root for this i)
-        if (root_node >= nnodes) continue;        // guard (shouldn’t happen if nnodes % b == 0)
-        int root_rank = root_node * b + node_rank;
+        root_node = i * b + node_rank;        // 0..nnodes-1 (lane root for this i)
 
-        const char *my_chunk = (const char*)phase1_buf + i * intra_recvcount * extent;
+        if (root_node >= nnodes) break;        // guard (shouldn’t happen if nnodes % b == 0)
+
+        root_rank = root_node * b + node_rank;
+
+        my_chunk = phase1_buf + i * intra_recvbytes;
 
         if (node_id == root_node) {
             // Initialize accumulator with local contribution
-            memcpy(phase2_buf, my_chunk, intra_recvcount * extent);
+            memcpy(phase2_buf, my_chunk, intra_recvbytes);
 
             // Receive from every other node in my lane and accumulate
             for (int j = 0; j < nnodes; ++j) {
+
                 if (j == node_id) continue;
-                int src_rank = j * b + node_rank;
+                
+                src_rank = j * b + node_rank;
+
                 MPI_Recv(tmp, intra_recvcount, datatype, src_rank, i, comm, MPI_STATUS_IGNORE);
                 // tmp (inbuf) reduced into phase2_buf (inoutbuf)
                 MPI_Reduce_local(tmp, phase2_buf, intra_recvcount, datatype, op);
@@ -567,58 +533,53 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
 //-------------END PHASE 2--------------------
 
-
     if (node_rank == root_local) {
-        for (int real_slot = 0; real_slot < b; ++real_slot) {
-            const int norm_i = (real_slot - root_local + b) % b;
-            std::memcpy((char*)tmp + (size_t)norm_i * (recvcount * extent),
-                        phase2_buf + (size_t)real_slot * (recvcount * extent),
-                        (recvcount * extent));
+        for (real_slot = 0; real_slot < b; ++real_slot) {
+            norm_i = (real_slot - root_local + b) % b;
+            std::memcpy((char*)tmp + (size_t)norm_i * recvbytes,
+                        phase2_buf + (size_t)real_slot * recvbytes,
+                        recvbytes);
         }
     }
 
-    delta = 1;
-    for (i = 1; i < nphases; ++i) delta *= k;
+
+
 
     for (phase = nphases - 1; phase >= 0; --phase) {
-        const int groupSize = delta * k;                          // size of this k-ary group
-        const int gstart    = (shift / groupSize) * groupSize;    // leader of my group
-        const int blockEnd  = std::min(gstart + groupSize, b);    // cap at b
+        groupSize = delta * k;                          // size of this k-ary group
+        gstart    = (shift / groupSize) * groupSize;    // leader of my group
+        blockEnd  = std::min(gstart + groupSize, b);    // cap at b
         offset    = shift - gstart;                      // position inside group
+        num_reqs = 0;
 
         if (offset == 0) {
             // I am the leader of this group → send to child-group leaders
-            int ns = 0;
-            for (int j = 1; j < k; ++j) {
-                const int child = gstart + j * delta;             // leader of child subgroup
+            
+            for (j = 1; j < k; ++j) {
+                child = gstart + j * delta;             // leader of child subgroup
                 if (child >= blockEnd) break;
 
-                const int subtree = std::min(delta, blockEnd - child);
+                subtree = std::min(delta, blockEnd - child);
 
-                const int dst_local = (child + root_local) % b;   // map back to real local slot
-                const int dst_glob  = node_id * b + dst_local;
+                dst_local = (child + root_local) % b;   // map back to real local slot
+                dst_glob  = node_id * b + dst_local;
 
-                MPI_Isend((char*)tmp + (size_t)child * (recvcount * extent),
-                          subtree * recvcount, datatype,
-                          dst_glob, /*tag=*/phase, comm, &reqs[ns++]);
+                MPI_Isend((char*)tmp + child * recvbytes, subtree * recvcount, datatype, dst_glob, phase, comm, &reqs[num_reqs++]);
             }
-            if (ns) MPI_Waitall(ns, reqs, MPI_STATUSES_IGNORE);
+            
         }
         else if ((offset % delta) == 0 && offset < groupSize) {
             // I am a child-subgroup leader → receive my subtree block from my parent (gstart)
-            const int parent    = gstart;                          // leader of parent group
-            const int src_local = (parent + root_local) % b;
-            const int src_glob  = node_id * b + src_local;
+            parent    = gstart;                          // leader of parent group
+            src_local = (parent + root_local) % b;
+            src_glob  = node_id * b + src_local;
 
-            const int subtree = std::min(delta, blockEnd - shift);
+            subtree = std::min(delta, blockEnd - shift);
 
-            MPI_Request rreq;
-            MPI_Irecv((char*)tmp + (size_t)shift * (recvcount * extent),
-                      subtree * recvcount, datatype,
-                      src_glob, /*tag=*/phase, comm, &rreq);
-            MPI_Wait(&rreq, MPI_STATUS_IGNORE);
-            // After this phase, I'll be a leader for my smaller subgroups in later (smaller delta) phases.
+            MPI_Irecv((char*)tmp + shift * recvbytes, subtree * recvcount, datatype, src_glob, phase, comm, &reqs[num_reqs++]);
         }
+
+        MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
 
         // next phase uses smaller delta
         delta = (phase > 0 ? delta / k : delta);
@@ -626,13 +587,12 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
     // Each rank extracts its own block from normalized index = shift
     std::memcpy(recvbuf,
-                (char*)tmp + (size_t)shift * (recvcount * extent),
-                (recvcount * extent));
+                (char*)tmp + shift * recvbytes,
+                recvbytes);
 
 
 
 
-fn_exit:
 
     free(tmp);
     free(phase1_buf_start);
@@ -654,9 +614,6 @@ fn_exit:
         
         
     return mpi_errno;
-
-fn_fail:
-    goto fn_exit;
 
 
 
