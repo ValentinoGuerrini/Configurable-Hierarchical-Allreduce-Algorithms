@@ -276,7 +276,7 @@ int allgather_radix_batch(char* sendbuf, int sendcount, MPI_Datatype datatype, c
             received = send_sizes[i][node_rank];
             
             for(j = 1; j < k; j++) {
-                if(delta * j >= b){
+                if(delta * j >= b){ 
 
                     for(int l = 0; l < b; l++){
                         if(active[l] == i){
