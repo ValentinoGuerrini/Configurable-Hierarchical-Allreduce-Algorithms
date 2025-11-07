@@ -116,7 +116,7 @@ int main(int argc, char** argv) {
     int n_iter;
     bool overwrite = false;
 
-    int b = 104;      // default value
+    int b = 32;      // default value
     int base = 8;     // default value
 
     if (argc < 2 || argc > 5) {
@@ -152,7 +152,7 @@ int main(int argc, char** argv) {
     std::ofstream csv;
     if (rank == 0) {
         // check whether results.csv already exists
-        std::string filename = "results" + std::to_string(nprocs/b) + ".csv";
+        std::string filename = "results" + std::to_string(nprocs/32) + ".csv";
         bool exists = std::ifstream(filename).good();
 
         if (overwrite || !exists) {
@@ -170,7 +170,7 @@ int main(int argc, char** argv) {
         int count = base << i;
 
         // Algorithms with k + single_phase_recv
-        for (int k = 2; k < b; k+=3) {
+        for (int k = 2; k < b; k+=1) {
         run_k_b("allgather_radix_batch", k, b, count, allgather_radix_batch,
                 MPI_COMM_WORLD, csv, rank, nprocs, MPI_INT);
 

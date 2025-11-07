@@ -208,6 +208,15 @@ int reduce_scatter_standard(char* sendbuf, char* recvbuf, int count, MPI_Datatyp
     return MPI_Reduce_scatter_block(sendbuf, recvbuf, count, datatype, op, comm);
 }
 
+long long closestDivisorToSqrt(long long x) {
+    long long root = std::sqrt(x);
+    for (long long d = root; d >= 1; --d) {
+        if (x % d == 0)
+            return d; // first divisor <= sqrt(x)
+    }
+    return 1; // fallback, though this will never happen for x >= 1
+}
+
 
 int main(int argc, char** argv) {
     MPI_Init(&argc, &argv);
@@ -221,7 +230,10 @@ int main(int argc, char** argv) {
     int n_iter;
     bool overwrite = false;
 
-    int b = 32;      // default value
+    int b = 16;//closestDivisorToSqrt(nprocs);       // default value
+
+    if(b > 32) b = 32;
+
     int base = 8;     // default value
 
     if (argc < 2 || argc > 5) {
