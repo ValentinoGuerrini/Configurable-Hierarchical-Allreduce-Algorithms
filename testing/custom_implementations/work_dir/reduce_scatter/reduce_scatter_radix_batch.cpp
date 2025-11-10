@@ -285,7 +285,7 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
     Recexchalgo_get_all_count_and_offset(b, step2_nphases, k, count, offsets);
 
-    MPI_Request* reqs = (MPI_Request*)malloc(sizeof(MPI_Request)* (step1_nrecvs + k));
+    MPI_Request* reqs = (MPI_Request*)malloc(sizeof(MPI_Request)* (step1_nrecvs + k + nnodes));
 
     in_step2 = (step1_sendto == -1) ? 1 : 0;
 
@@ -491,6 +491,36 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
     nIters = (nu_count == 0) ? (nstages) : 1 + (nstages); // number of rotating roots (i)
 
+    // for (i = 0; i < nIters; ++i) {
+    //     root_node = i * b + node_rank;        // 0..nnodes-1 (lane root for this i)
+
+    //     if (root_node >= nnodes) break;        // guard (shouldn’t happen if nnodes % b == 0)
+
+    //     root_rank = root_node * b + node_rank;
+
+    //     if (node_id == root_node) {
+
+    //         tmp_recvbuf = (char*)tmp_recvbuf + i * intra_recvbytes;
+
+    //         for (int j = 0; j < nnodes; ++j) {
+
+    //             if (j == node_id) continue;
+                
+    //             src_rank = j * b + node_rank;
+
+    //             MPI_Recv(tmp_results, intra_recvcount, datatype, src_rank, i, comm, MPI_STATUS_IGNORE);
+    //             // tmp (inbuf) reduced into phase2_buf (inoutbuf)
+                
+    //             MPI_Reduce_local(tmp_results, tmp_recvbuf, intra_recvcount, datatype, op);
+    //         }
+    //     } else {
+    //         // Non-root sends its lane-chunk to the root of this iteration
+    //         MPI_Send((char*)tmp_recvbuf_start + i * intra_recvbytes, intra_recvcount, datatype, root_rank, i, comm);
+    //     }
+
+    
+    // }
+
     for (i = 0; i < nIters; ++i) {
         root_node = i * b + node_rank;        // 0..nnodes-1 (lane root for this i)
 
@@ -501,25 +531,38 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
         if (node_id == root_node) {
 
             tmp_recvbuf = (char*)tmp_recvbuf + i * intra_recvbytes;
+            num_reqs = 0;
+            for (stage = 0, src_rank = node_rank; stage < nnodes; ++stage, src_rank += b) {
 
-            for (int j = 0; j < nnodes; ++j) {
+                if (stage == node_id) continue;
 
-                if (j == node_id) continue;
-                
-                src_rank = j * b + node_rank;
 
-                MPI_Recv(tmp_results, intra_recvcount, datatype, src_rank, i, comm, MPI_STATUS_IGNORE);
-                // tmp (inbuf) reduced into phase2_buf (inoutbuf)
-                
-                MPI_Reduce_local(tmp_results, tmp_recvbuf, intra_recvcount, datatype, op);
+                MPI_Irecv((char*)tmp_results + intra_recvbytes * stage, intra_recvcount, datatype, src_rank, i, comm, &reqs[num_reqs++]);
+  
             }
+
+            int jdx = 0;
+
+            for(stage = 0 ; stage < nnodes; stage++){
+
+                if (stage == node_id) continue;
+
+                MPI_Wait(&reqs[jdx++], MPI_STATUS_IGNORE);
+
+                MPI_Reduce_local((char*)tmp_results + intra_recvbytes * stage, tmp_recvbuf, intra_recvcount, datatype, op);
+            }
+
         } else {
             // Non-root sends its lane-chunk to the root of this iteration
-            MPI_Send((char*)tmp_recvbuf_start + i * intra_recvbytes, intra_recvcount, datatype, root_rank, i, comm);
+            MPI_Isend((char*)tmp_recvbuf_start + i * intra_recvbytes, intra_recvcount, datatype, root_rank, i, comm, &reqs[0]);
+            MPI_Wait(&reqs[0], MPI_STATUS_IGNORE);
         }
 
     
     }
+
+
+
 
 
 //-------------END PHASE 2--------------------

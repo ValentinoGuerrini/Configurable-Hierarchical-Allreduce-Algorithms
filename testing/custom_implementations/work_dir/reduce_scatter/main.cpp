@@ -268,7 +268,7 @@ int main(int argc, char** argv) {
     //
     std::ofstream csv;
     if (rank == 0) {
-        std::string filename = "results" + std::to_string(nprocs / b) + ".csv";
+        std::string filename = "results" + std::to_string(nprocs / 32) + ".csv";
         bool exists = std::ifstream(filename).good();
 
         if (overwrite || !exists) {
