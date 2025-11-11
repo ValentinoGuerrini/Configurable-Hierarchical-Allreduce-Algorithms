@@ -28,6 +28,13 @@ testing/custom_implementations/work_dir/all_reduce/results52.csv
 testing/custom_implementations/work_dir/all_reduce/results6.csv
 
 
+testing/custom_implementations/work_dir/reduce_scatter/results16.csv
+testing/custom_implementations/work_dir/reduce_scatter/results2.csv
+testing/custom_implementations/work_dir/reduce_scatter/results32.csv
+testing/custom_implementations/work_dir/reduce_scatter/results48.csv
+testing/custom_implementations/work_dir/reduce_scatter/results64.csv
+
+
 testing/custom_implementations/work_dir/reduce_scatter/results4.csv
 testing/custom_implementations/work_dir/reduce_scatter/results8.csv
 
