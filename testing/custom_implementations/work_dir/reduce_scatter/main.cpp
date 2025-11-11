@@ -106,7 +106,7 @@ void run_r_b(const std::string& name, int r, int b, int count, Func func,
         ref_recv = std::move(tmp_ref);
     }
 
-    for (int rep = 0; rep < 50; ++rep) {
+    for (int rep = 0; rep < 20; ++rep) {
         std::fill(recvbuf.begin(), recvbuf.end(), 0);
 
         MPI_Barrier(comm);
@@ -166,7 +166,7 @@ void run_no_params(const std::string& name, int count, Func func,
         ref_recv = std::move(tmp_ref);
     }
 
-    for (int rep = 0; rep < 50; ++rep) {
+    for (int rep = 0; rep < 20; ++rep) {
         std::fill(recvbuf.begin(), recvbuf.end(), 0);
 
         MPI_Barrier(comm);
@@ -268,7 +268,7 @@ int main(int argc, char** argv) {
     //
     std::ofstream csv;
     if (rank == 0) {
-        std::string filename = "results" + std::to_string(nprocs / 32) + ".csv";
+        std::string filename = "results" + std::to_string(nprocs / 104) + ".csv";
         bool exists = std::ifstream(filename).good();
 
         if (overwrite || !exists) {
@@ -286,7 +286,7 @@ int main(int argc, char** argv) {
         int count = base << i;
 
         // --- Algorithms with radix r and batch b (reduce-scatter, block variant)
-        for (int r = 2; r < b; r += 1) {
+        for (int r = 2; r < b; r += 4) {
             run_r_b("reduce_scatter_radix_batch",
                     r, b, count,
                     reduce_scatter_radix_batch,

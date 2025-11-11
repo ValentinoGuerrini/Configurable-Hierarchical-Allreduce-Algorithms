@@ -16,8 +16,20 @@ testing/custom_implementations/work_dir/reduce_scatter/runner_polaris_reduce_sca
 testing/mpich_implementations/reduce_scatter/runner_polaris_reduce_scatter.sh.*
 testing/mpich_implementations/reduce_scatter/out
 
+testing/custom_implementations/work_dir/reduce_scatter/tests_b_104/
+testing/custom_implementations/work_dir/reduce_scatter/tests_b_13/
+testing/custom_implementations/work_dir/reduce_scatter/tests_b_26/
+testing/custom_implementations/work_dir/reduce_scatter/tests_b_52/
+testing/custom_implementations/work_dir/reduce_scatter/tests_random_b/
+
+testing/custom_implementations/work_dir/all_reduce/results13.csv
+testing/custom_implementations/work_dir/all_reduce/results26.csv
+testing/custom_implementations/work_dir/all_reduce/results52.csv
+testing/custom_implementations/work_dir/all_reduce/results6.csv
 
 
+testing/custom_implementations/work_dir/reduce_scatter/results4.csv
+testing/custom_implementations/work_dir/reduce_scatter/results8.csv
 
 testing/custom_implementations/work_dir/reduce_scatter/debug_plots
 testing/custom_implementations/work_dir/all_reduce/runner_polaris_allreduce.sh.*
