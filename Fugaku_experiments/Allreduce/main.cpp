@@ -166,7 +166,6 @@ int main(int argc, char** argv) {
 
     std::ofstream csv;
     if (rank == 0) {
-        // check whether results.csv already exists
 
         std::string filename = "results" + std::to_string(num_nodes) + ".csv";
 
