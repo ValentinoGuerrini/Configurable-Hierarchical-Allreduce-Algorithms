@@ -22,65 +22,13 @@ bool check_correctness(const std::vector<T>& buf,
     return true;
 }
 
-// int intra_reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
-//                                MPI_Aint recvcount, MPI_Datatype datatype,
-//                                MPI_Op op, MPI_Comm comm, int k, int b);
 
-// int inter_reduce_linear(const void *sendbuf, void *recvbuf,
-//                         MPI_Aint recvcount, MPI_Datatype datatype,
-//                         MPI_Op op, MPI_Comm comm, int b);
-
-// int intra_scatter_radix_batch(char* sendbuf,
-//                               int   recvcount,
-//                               MPI_Datatype datatype,
-//                               char* recvbuf,
-//                               MPI_Comm comm,
-//                               int k,
-//                               int b);
 
 int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
                                MPI_Aint recvcount, MPI_Datatype datatype,
                                MPI_Op op, MPI_Comm comm, int k, int b);
 
-// int reduce_scatter_radix_block(char *sendbuf, char *recvbuf, int count, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm, int r , int b){
 
-//     int mpi_errno = MPI_SUCCESS;
-
-//     int type_size = 0;
-//     MPI_Type_size(datatype, &type_size);
-
-//     MPI_Aint intra_recvcount = count * b;
-//     int size;
-//     MPI_Comm_size(MPI_COMM_WORLD, &size);
-
-//     MPI_Aint total_recv_elems = intra_recvcount * (size/(b*b) + ((size%(b*b)==0)?0:1));
-
-//     char* tmp = (char*) malloc(type_size*total_recv_elems);
-
-//     mpi_errno = intra_reduce_scatter_radix_batch(sendbuf, tmp, count, datatype, op, comm, r, b);
-//     if(mpi_errno != MPI_SUCCESS){
-//         return mpi_errno;
-//     }
-
-//     char* tmp2 = (char*) malloc(type_size*intra_recvcount);
-
-    
-
-//     mpi_errno = inter_reduce_linear(tmp, tmp2, count, datatype, op, comm, b);
-//     if(mpi_errno != MPI_SUCCESS){
-//         return mpi_errno;
-//     }
-
-//     mpi_errno = intra_scatter_radix_batch( tmp2, count, datatype, recvbuf, comm, r, b);
-
-
-
-//     free(tmp2);
-//     free(tmp);
-
-//     return mpi_errno;
-
-// };
 
 
 template<typename Func>
@@ -220,26 +168,30 @@ long long closestDivisorToSqrt(long long x) {
 
 int main(int argc, char** argv) {
     MPI_Init(&argc, &argv);
+
     int rank, nprocs;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
     //
-    // Parse arguments:  program <n_iter> [--overwrite] [b=<value>] [base=<value>]
+    // Parse arguments:
+    //   program <n_iter> [--overwrite] [b=<value>] [base=<value>] [num_nodes=<value>] [radix_increment=<value>]
     //
     int n_iter;
     bool overwrite = false;
 
-    int b = 16;//closestDivisorToSqrt(nprocs);       // default value
+    int b = 16;
+    int base = 1;
+    int num_nodes = 1;
+    int radix_increment = 1;
 
-    if(b > 32) b = 32;
+    if (b > 32) b = 32;
 
-    int base = 8;     // default value
-
-    if (argc < 2 || argc > 5) {
+    if (argc < 2 || argc > 7) {
         if (rank == 0) {
             std::cerr << "Usage: " << argv[0]
-                      << " <n_iter> [--overwrite] [b=<value>] [base=<value>]\n";
+                      << " <n_iter> [--overwrite] [b=<value>] [base=<value>] "
+                         "[num_nodes=<value>] [radix_increment=<value>]\n";
         }
         MPI_Finalize();
         return EXIT_FAILURE;
@@ -254,6 +206,10 @@ int main(int argc, char** argv) {
             b = std::atoi(argv[i] + 2);
         } else if (std::strncmp(argv[i], "base=", 5) == 0) {
             base = std::atoi(argv[i] + 5);
+        } else if (std::strncmp(argv[i], "num_nodes=", 10) == 0) {
+            num_nodes = std::atoi(argv[i] + 10);
+        } else if (std::strncmp(argv[i], "radix_increment=", 16) == 0) {
+            radix_increment = std::atoi(argv[i] + 16);
         } else {
             if (rank == 0) {
                 std::cerr << "Unknown parameter: " << argv[i] << "\n";
@@ -268,7 +224,7 @@ int main(int argc, char** argv) {
     //
     std::ofstream csv;
     if (rank == 0) {
-        std::string filename = "results" + std::to_string(nprocs / 104) + ".csv";
+        std::string filename = "results"+std::to_string(nprocs/num_nodes)+"_" + std::to_string(num_nodes)+"_"+std::to_string(b) + ".csv";
         bool exists = std::ifstream(filename).good();
 
         if (overwrite || !exists) {
@@ -286,7 +242,7 @@ int main(int argc, char** argv) {
         int count = base << i;
 
         // --- Algorithms with radix r and batch b (reduce-scatter, block variant)
-        for (int r = 2; r < b; r += 4) {
+        for (int r = 2; r < b; r += radix_increment) {
             run_r_b("reduce_scatter_radix_batch",
                     r, b, count,
                     reduce_scatter_radix_batch,
