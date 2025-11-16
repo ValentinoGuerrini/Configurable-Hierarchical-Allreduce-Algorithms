@@ -54,7 +54,7 @@ void run_r_b(const std::string& name, int r, int b, int count, Func func,
         ref_recv = std::move(tmp_ref);
     }
 
-    for (int rep = 0; rep < 20; ++rep) {
+    for (int rep = 0; rep < 50; ++rep) {
         std::fill(recvbuf.begin(), recvbuf.end(), 0);
 
         MPI_Barrier(comm);
@@ -114,7 +114,7 @@ void run_no_params(const std::string& name, int count, Func func,
         ref_recv = std::move(tmp_ref);
     }
 
-    for (int rep = 0; rep < 20; ++rep) {
+    for (int rep = 0; rep < 50; ++rep) {
         std::fill(recvbuf.begin(), recvbuf.end(), 0);
 
         MPI_Barrier(comm);

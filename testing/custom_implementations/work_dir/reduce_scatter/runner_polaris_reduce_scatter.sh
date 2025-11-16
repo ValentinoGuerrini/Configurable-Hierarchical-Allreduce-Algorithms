@@ -1,9 +1,9 @@
 #!/bin/bash -l
-#PBS -l select=128:system=polaris
+#PBS -l select=8:system=polaris
 #PBS -l place=scatter
 #PBS -l walltime=0:30:00
 #PBS -l filesystems=home:eagle
-#PBS -q prod
+#PBS -q debug-scaling
 #PBS -A UIC-HPC
 
 cd ${PBS_O_WORKDIR}
@@ -20,4 +20,4 @@ echo "NUM_OF_NODES= ${NNODES} TOTAL_NUM_RANKS= ${NTOTRANKS} RANKS_PER_NODE= ${NR
 
 # Change the directory to work directory, which is the directory you submit the job.
 cd $PBS_O_WORKDIR
-mpiexec --np ${NTOTRANKS} -ppn ${NRANKS} -d ${NDEPTH} --cpu-bind depth -env OMP_NUM_THREADS=${NTHREADS} ./out 14 --overwrite b=32 base=1 num_nodes=${NNODES} radix_increment=3
+mpiexec --np ${NTOTRANKS} -ppn ${NRANKS} -d ${NDEPTH} --cpu-bind depth -env OMP_NUM_THREADS=${NTHREADS} ./out 14 --overwrite b=16 base=1 num_nodes=${NNODES} radix_increment=1

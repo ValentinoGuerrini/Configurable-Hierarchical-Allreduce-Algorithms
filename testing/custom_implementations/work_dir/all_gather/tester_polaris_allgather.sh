@@ -20,4 +20,4 @@ echo "NUM_OF_NODES= ${NNODES} TOTAL_NUM_RANKS= ${NTOTRANKS} RANKS_PER_NODE= ${NR
 
 # Change the directory to work directory, which is the directory you submit the job.
 cd $PBS_O_WORKDIR
-mpiexec --np ${NTOTRANKS} -ppn ${NRANKS} -d ${NDEPTH} --cpu-bind depth -env OMP_NUM_THREADS=${NTHREADS} ./out 14 --overwrite b=32 base=1 num_nodes=${NNODES} radix_increment=4
+mpiexec --np ${NTOTRANKS} -ppn ${NRANKS} -d ${NDEPTH} --cpu-bind depth -env OMP_NUM_THREADS=${NTHREADS} ./out 14 --overwrite b=64 base=1 num_nodes=${NNODES} radix_increment=6
