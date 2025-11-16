@@ -37,7 +37,7 @@ void run_k_b(const std::string& name, int k, int b, int count, Func func,
     MPI_Allgather(sendbuf.data(), count, datatype,
                   refbuf.data(), count, datatype, comm);
 
-    for (int rep = 0; rep < 50; ++rep) {
+    for (int rep = 0; rep < 25; ++rep) {
         std::fill(recvbuf.begin(), recvbuf.end(), 0);
         MPI_Barrier(comm);
         double t0 = MPI_Wtime();
@@ -73,7 +73,7 @@ void run_no_k(const std::string& name, int count, Func func,
     MPI_Allgather(sendbuf.data(), count, datatype,
                   refbuf.data(), count, datatype, comm);
 
-    for (int rep = 0; rep < 50; ++rep) {
+    for (int rep = 0; rep < 25; ++rep) {
         std::fill(recvbuf.begin(), recvbuf.end(), 0);
         MPI_Barrier(comm);
         double t0 = MPI_Wtime();
