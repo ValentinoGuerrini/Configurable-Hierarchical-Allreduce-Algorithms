@@ -45,3 +45,4 @@ testing/custom_implementations/work_dir/all_reduce/out
 .vscode/
 testing/custom_implementations/work_dir/reduce_scatter/all_buffers.txt
 testing/custom_implementations/work_dir/reduce_scatter/out
+OpenFOAM-13/

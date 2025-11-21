@@ -4,17 +4,12 @@ import matplotlib.patches as mpatches
 import numpy as np
 import sys
 
-BASELINE = 'MPI_Reduce_scatter_block'
-
 if len(sys.argv) < 2:
     print("Usage: python median_best_plotter.py <filename>")
     sys.exit(1)
 
 filename = sys.argv[1]
 df = pd.read_csv(filename)
-
-# --- keep: normalize send_count by number of processes ---
-df['send_count'] = df['send_count'] / df['nprocs']
 
 # sanity check: every result must be correct
 if not df['is_correct'].eq(1).all():
@@ -41,6 +36,7 @@ med = (
 wide = med.pivot(index=['nprocs','send_count'], columns='algorithm', values='time')
 
 # Baseline for speedup annotation (must exist in data)
+BASELINE = 'reduce_scatter_standard'
 if BASELINE not in wide.columns:
     raise RuntimeError(f"Baseline '{BASELINE}' not found in data. Available algorithms:\n{list(wide.columns)}")
 
@@ -59,34 +55,25 @@ my_best_series = wide[my_cols].min(axis=1)
 speedup_series = baseline_series / my_best_series   # >1× means you beat baseline
 speedup = speedup_series.unstack(level=-1)
 
-# ---------------- NEW: coloring uses best non-baseline if baseline wins ----------------
-# For each cell: if the overall winner is BASELINE, color with the fastest non-baseline algo
-my_best_algo_series = wide[my_cols].idxmin(axis=1)    # may be NaN if missing
-color_algo_series = best_algo_series.copy()
-mask_baseline_wins = (best_algo_series == BASELINE)
-# Replace only where we actually have a non-baseline candidate
-color_algo_series.loc[mask_baseline_wins & my_best_algo_series.notna()] = my_best_algo_series.loc[
-    mask_baseline_wins & my_best_algo_series.notna()
-]
-color_algo = color_algo_series.unstack(level=-1)
-
-# ---------------- Color mapping (legend shows used colors) ----------------
+# ---------------- Color mapping (winners only) ----------------
+# Keep overall algorithm ordering stable, then filter to winners
 algos = sorted(med['algorithm'].unique())
-used_set = set(color_algo_series.dropna().unique())
+winners_set = set(best_algo_series.dropna().unique())
+winners = [a for a in algos if a in winners_set]
 
-# Prefer to exclude baseline from legend if coloring avoided it; if baseline is the only thing left, include it.
-non_baseline_used = [a for a in algos if a in used_set and a != BASELINE]
-winners = non_baseline_used if non_baseline_used else [BASELINE]
+if not winners:
+    raise RuntimeError("No winners detected to display. Check your input data.")
 
 # Choose a qualitative colormap sized to the number of winners
 cmap_name = 'tab10' if len(winners) <= 10 else 'tab20'
 cmap = plt.get_cmap(cmap_name, len(winners))
 
-# Map each displayed algo to a compact color index
+# Map each winner to a compact color index
 winner_code = {a: i for i, a in enumerate(winners)}
 
-# Build the code matrix for pcolormesh using the "coloring" algorithm (not necessarily the true winner)
-code_matrix = color_algo.replace(winner_code)
+# Rebuild the code matrix for pcolormesh using only winner indices
+# (best_algo contains exactly winners' names, as it is argmin over 'wide')
+code_matrix = best_algo.replace(winner_code)
 
 # ---------------- Plot ----------------
 fig, ax = plt.subplots(figsize=(12, 8))
@@ -109,18 +96,18 @@ ax.set_yticklabels(nprocs_vals)
 ax.set_xticks(np.arange(len(send_ct_vals)) + 0.5)
 ax.set_xticklabels(send_ct_vals, rotation=45, ha='right')
 
-ax.set_xlabel('Recv Count')
+ax.set_xlabel('Send Count')
 ax.set_ylabel('Number of Processes')
-ax.set_title('Best Allreduce Algorithm by nprocs & recv_count (MEDIAN TIME)\n(color shows fastest non-baseline when baseline wins)')
+ax.set_title('Best Allgather Algorithm by nprocs & send_count (MEDIAN TIME)')
 
-# Legend with only displayed algorithms
+# Legend with only winners, each with a distinct color
 patches = [
     mpatches.Patch(facecolor=cmap(winner_code[a]), edgecolor='black', label=a)
     for a in winners
 ]
 ax.legend(
     handles=patches,
-    title='Algorithm (cell color)',
+    title='Best Algorithm',
     bbox_to_anchor=(1.05, 1),
     loc='upper left',
     borderaxespad=0.0
@@ -138,12 +125,12 @@ for i, npv in enumerate(nprocs_vals):
         val = speedup.get(sc, pd.Series(dtype=float)).get(npv, np.nan)
         txt = f'{val:.2f}×' if pd.notna(val) else '—'
 
-        # background color based on the "coloring" algo in this cell
-        algo_name_for_color = color_algo.get(sc, pd.Series(dtype=object)).get(npv, None)
-        if algo_name_for_color in winner_code:
-            rgba = cmap(winner_code[algo_name_for_color])
+        # background color based on winning algo in this cell
+        algo_name = best_algo.get(sc, pd.Series(dtype=object)).get(npv, None)
+        if algo_name in winner_code:
+            rgba = cmap(winner_code[algo_name])
         else:
-            rgba = (1, 1, 1, 1)  # fallback (e.g., no non-baseline available)
+            rgba = (1, 1, 1, 1)  # fallback (shouldn't happen)
         ax.text(j + 0.5, i + 0.5, txt,
                 ha='center', va='center',
                 fontsize=8, fontweight='bold',

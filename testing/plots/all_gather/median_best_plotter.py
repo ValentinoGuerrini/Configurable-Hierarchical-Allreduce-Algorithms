@@ -28,7 +28,7 @@ df['algorithm'] = df.apply(
 # ---------------- Aggregate medians ----------------
 med = (
     df.groupby(['nprocs', 'send_count', 'algorithm'])['time']
-      .median()
+      .mean()
       .reset_index()
 )
 
