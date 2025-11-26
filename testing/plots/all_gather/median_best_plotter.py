@@ -96,7 +96,7 @@ ax.set_yticklabels(nprocs_vals)
 ax.set_xticks(np.arange(len(send_ct_vals)) + 0.5)
 ax.set_xticklabels(send_ct_vals, rotation=45, ha='right')
 
-ax.set_xlabel('Send Count')
+ax.set_xlabel('Send Count (DOUBLE -- 8 Bytes)')
 ax.set_ylabel('Number of Processes')
 ax.set_title('Best Allgather Algorithm by nprocs & send_count (MEDIAN TIME)')
 
