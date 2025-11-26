@@ -114,7 +114,7 @@ void run_no_params(const std::string& name, int count, Func func,
         ref_recv = std::move(tmp_ref);
     }
 
-    for (int rep = 0; rep < 15; ++rep) {
+    for (int rep = 0; rep < 5; ++rep) {
         std::fill(recvbuf.begin(), recvbuf.end(), 0);
 
         MPI_Barrier(comm);

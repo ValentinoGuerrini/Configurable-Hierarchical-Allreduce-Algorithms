@@ -190,7 +190,7 @@ int main(int argc, char** argv) {
         }
 
         // Algorithms without k
-        ///rund the standard allgather implementation
+        // /rund the standard allgather implementation
         run_no_k("allgather_standard", count, allgather_standard,
                 MPI_COMM_WORLD, csv, rank, nprocs, MPI_INT);
     }
