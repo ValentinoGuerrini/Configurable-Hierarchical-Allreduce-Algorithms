@@ -109,31 +109,35 @@ void run_no_k(const std::string& name, int count, Func func,
 }
 
 int main(int argc, char** argv) {
-       MPI_Init(&argc, &argv);
+   MPI_Init(&argc, &argv);
+
     int rank, nprocs;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
     //
-    // Parse arguments:  program <n_iter> [--overwrite] [b=<value>] [base=<value>]
+    // Parse arguments:
+    //   program <n_iter> [--overwrite] [b=<value>] [base=<value>] [num_nodes=<value>] [radix_increment=<value>]
     //
     int n_iter;
     bool overwrite = false;
 
     int b = 16;
+    int base = 1;
+    int num_nodes = 1;
+    int radix_increment = 1;
 
-    if(b > 32) b = 32;
+    if (b > 32) b = 32;
 
-    if (argc < 2 || argc > 5) {
+    if (argc < 2 || argc > 7) {
         if (rank == 0) {
             std::cerr << "Usage: " << argv[0]
-                      << " <n_iter> [--overwrite] [b=<value>] [base=<value>]\n";
+                      << " <n_iter> [--overwrite] [b=<value>] [base=<value>] "
+                         "[num_nodes=<value>] [radix_increment=<value>]\n";
         }
         MPI_Finalize();
         return EXIT_FAILURE;
     }
-
-    int base = 1;
 
     n_iter = std::atoi(argv[1]);
 
@@ -144,6 +148,10 @@ int main(int argc, char** argv) {
             b = std::atoi(argv[i] + 2);
         } else if (std::strncmp(argv[i], "base=", 5) == 0) {
             base = std::atoi(argv[i] + 5);
+        } else if (std::strncmp(argv[i], "num_nodes=", 10) == 0) {
+            num_nodes = std::atoi(argv[i] + 10);
+        } else if (std::strncmp(argv[i], "radix_increment=", 16) == 0) {
+            radix_increment = std::atoi(argv[i] + 16);
         } else {
             if (rank == 0) {
                 std::cerr << "Unknown parameter: " << argv[i] << "\n";
@@ -157,9 +165,8 @@ int main(int argc, char** argv) {
 
     std::ofstream csv;
     if (rank == 0) {
-        // check whether results.csv already exists
 
-        std::string filename = "results" + std::to_string(nprocs / 32) + ".csv";
+        std::string filename = "results" + std::to_string(nprocs/num_nodes) +"_"+ std::to_string(num_nodes)+ "_" + std::to_string(b) + ".csv";
 
         bool exists = std::ifstream(filename).good();
 
@@ -179,7 +186,7 @@ int main(int argc, char** argv) {
         int count = base << i;
 
         // Algorithms with k + single_phase_recv
-        for (int k = 2; k < b; ++k) {
+        for (int k = 2; k < b; k+=radix_increment) {
             run_k2("all_reduce_radix_batch", k, count,
                    all_reduce_radix_batch,
                    MPI_COMM_WORLD, csv, rank, nprocs, b);

@@ -197,6 +197,16 @@ static inline void Recexchalgo_get_all_count_and_offset(int nranks, int max_phas
 
 }
 
+int ipow(int base, int exp) {
+    int result = 1;
+    while (exp) {
+        if (exp & 1)
+            result *= base;
+        exp >>= 1;
+        base *= base;
+    }
+    return result;
+}
 
 
 int all_reduce_radix_batch(char *sendbuf, char *recvbuf, int aCount,
@@ -219,7 +229,8 @@ int all_reduce_radix_batch(char *sendbuf, char *recvbuf, int aCount,
     int src;
     bool rootCond;
 
-
+    int k_tmp = k;
+    k = 2;
     int node_id;
     int nnodes;
     int node_rank;
@@ -274,8 +285,8 @@ int all_reduce_radix_batch(char *sendbuf, char *recvbuf, int aCount,
     int nphases = 0, tmpb = b - 1;
     
     
-    while (tmpb > 0) { ++nphases; tmpb /= k; }
-   
+    while (tmpb > 0) { ++nphases; tmpb /= k_tmp; }
+    bool p_of_k_2 = (ipow(k_tmp, nphases) == b);
 
     int j;
 
@@ -288,7 +299,7 @@ int all_reduce_radix_batch(char *sendbuf, char *recvbuf, int aCount,
     Recexchalgo_get_all_count_and_offset(b, step2_nphases, k, count, offsets);
 
     
-    MPI_Request* reqs = (MPI_Request*)malloc(sizeof(MPI_Request)* (nnodes + 2*k));
+    MPI_Request* reqs = (MPI_Request*)malloc(sizeof(MPI_Request)* (nnodes + 2*k_tmp));
 
     in_step2 = (step1_sendto == -1) ? 1 : 0;
 
@@ -546,7 +557,7 @@ int all_reduce_radix_batch(char *sendbuf, char *recvbuf, int aCount,
         printf("Red-Scatter Phase 2 time: %f\n", t0 - t1);
     }
     #endif
-
+    k = k_tmp;
     //ALLGATHER PHASE
 
      for(i = 0; i<nnodes; i+=b){
@@ -602,7 +613,7 @@ int all_reduce_radix_batch(char *sendbuf, char *recvbuf, int aCount,
                 src = (node_rank + delta * j) % b + node_id*b;  // Fixed 'size' to 'nranks' and 'k' to 'j'
 
                 int tmp_count;
-                if ((i == nphases - 1) && (!(p_of_k==b))) {
+                if ((i == nphases - 1) && (!(p_of_k_2))) {
                     tmp_count = intra_recvcount * delta;
                     int left_count = intra_recvcount * (b - delta * j);
                     if (j == k - 1) {
