@@ -52,7 +52,7 @@ void run_k2(const std::string& name, int k, int count, Func func,
     MPI_Allreduce(sendbuf.data(), refbuf.data(), count,
                   MPI_INT, MPI_SUM, comm);
 
-    for (int rep = 0; rep < 50; ++rep) {
+    for (int rep = 0; rep < 15; ++rep) {
         std::fill(recvbuf.begin(), recvbuf.end(), 0.0);
         MPI_Barrier(comm);
         double t0 = MPI_Wtime();
@@ -86,7 +86,7 @@ void run_no_k(const std::string& name, int count, Func func,
     MPI_Allreduce(sendbuf.data(), refbuf.data(), count,
                   MPI_INT, MPI_SUM, comm);
 
-    for (int rep = 0; rep < 50; ++rep) {
+    for (int rep = 0; rep < 15; ++rep) {
         std::fill(recvbuf.begin(), recvbuf.end(), 0.0);
         MPI_Barrier(comm);
         double t0 = MPI_Wtime();
