@@ -491,40 +491,12 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
     nIters = (nu_count == 0) ? (nstages) : 1 + (nstages); // number of rotating roots (i)
 
-    // for (i = 0; i < nIters; ++i) {
-    //     root_node = i * b + node_rank;        // 0..nnodes-1 (lane root for this i)
 
-    //     if (root_node >= nnodes) break;        // guard (shouldn’t happen if nnodes % b == 0)
-
-    //     root_rank = root_node * b + node_rank;
-
-    //     if (node_id == root_node) {
-
-    //         tmp_recvbuf = (char*)tmp_recvbuf + i * intra_recvbytes;
-
-    //         for (int j = 0; j < nnodes; ++j) {
-
-    //             if (j == node_id) continue;
-                
-    //             src_rank = j * b + node_rank;
-
-    //             MPI_Recv(tmp_results, intra_recvcount, datatype, src_rank, i, comm, MPI_STATUS_IGNORE);
-    //             // tmp (inbuf) reduced into phase2_buf (inoutbuf)
-                
-    //             MPI_Reduce_local(tmp_results, tmp_recvbuf, intra_recvcount, datatype, op);
-    //         }
-    //     } else {
-    //         // Non-root sends its lane-chunk to the root of this iteration
-    //         MPI_Send((char*)tmp_recvbuf_start + i * intra_recvbytes, intra_recvcount, datatype, root_rank, i, comm);
-    //     }
-
-    
-    // }
 
     for (i = 0; i < nIters; ++i) {
         root_node = i * b + node_rank;        // 0..nnodes-1 (lane root for this i)
 
-        if (root_node >= nnodes) break;        // guard (shouldn’t happen if nnodes % b == 0)
+        if (root_node >= nnodes) break;        
 
         root_rank = root_node * b + node_rank;
 
@@ -561,7 +533,7 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
     
     }
 
-
+    MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
 
 
 
@@ -614,11 +586,13 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
             MPI_Irecv((char*)tmp_results + shift * recvbytes, subtree * recvcount, datatype, src_glob, phase, comm, &reqs[num_reqs++]);
         }
+        
+        // next phase uses smaller delta
+        delta = (phase > 0 ? delta / k : delta);
 
         MPI_Waitall(num_reqs, reqs, MPI_STATUSES_IGNORE);
 
-        // next phase uses smaller delta
-        delta = (phase > 0 ? delta / k : delta);
+       
     }
 
     // Each rank extracts its own block from normalized index = shift
@@ -630,7 +604,7 @@ int reduce_scatter_radix_batch(const void *sendbuf, void *recvbuf,
 
 
 
-    for(i = 0; i < step2_nphases && step2_nbrs[i] != NULL; i++)
+    for(i = 0; i < step2_nphases; i++)
         free(step2_nbrs[i]);
         
     free(step2_nbrs);
